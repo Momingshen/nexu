@@ -21,11 +21,11 @@ Internal API endpoints used by sidecar:
 
 - `RUNTIME_POOL_ID`
 - `INTERNAL_API_TOKEN` (internal API token)
-- `OPENCLAW_CONFIG_PATH`
 - `RUNTIME_API_BASE_URL`
 
 Optional but recommended:
 
+- `OPENCLAW_CONFIG_PATH` (if unset, sidecar resolves `${OPENCLAW_STATE_DIR}/openclaw.json`; default state dir is `~/.openclaw` or `~/.openclaw-<profile>`)
 - `RUNTIME_POD_IP`
 - `RUNTIME_POLL_INTERVAL_MS`
 - `RUNTIME_POLL_JITTER_MS`

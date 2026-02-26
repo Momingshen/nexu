@@ -95,9 +95,7 @@ const updateSessionInternalRoute = createRoute({
   },
 });
 
-export function registerSessionInternalRoutes(
-  app: OpenAPIHono<AppBindings>,
-) {
+export function registerSessionInternalRoutes(app: OpenAPIHono<AppBindings>) {
   // POST /api/internal/sessions — Gateway sidecar upserts a session
   app.openapi(createSessionRoute, async (c) => {
     const input = c.req.valid("json");
@@ -161,7 +159,11 @@ export function registerSessionInternalRoutes(
       .from(sessions)
       .where(eq(sessions.sessionKey, input.sessionKey));
 
-    return c.json(formatSession(created!), 201);
+    if (!created) {
+      throw new Error("Session upsert failed");
+    }
+
+    return c.json(formatSession(created), 201);
   });
 
   // PATCH /api/internal/sessions/:id — update session
@@ -203,7 +205,11 @@ export function registerSessionInternalRoutes(
       .from(sessions)
       .where(eq(sessions.id, id));
 
-    return c.json(formatSession(updated!), 200);
+    if (!updated) {
+      throw new Error("Session update failed");
+    }
+
+    return c.json(formatSession(updated), 200);
   });
 }
 

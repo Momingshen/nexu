@@ -2,6 +2,10 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { authMiddleware } from "./middleware/auth.js";
+import {
+  registerArtifactInternalRoutes,
+  registerArtifactRoutes,
+} from "./routes/artifact-routes.js";
 import { registerAuthRoutes } from "./routes/auth-routes.js";
 import { registerBotRoutes } from "./routes/bot-routes.js";
 import {
@@ -11,15 +15,11 @@ import {
 import { registerInviteRoutes } from "./routes/invite-routes.js";
 import { registerModelRoutes } from "./routes/model-routes.js";
 import { registerPoolRoutes } from "./routes/pool-routes.js";
-import { registerSlackEvents } from "./routes/slack-events.js";
-import {
-  registerArtifactInternalRoutes,
-  registerArtifactRoutes,
-} from "./routes/artifact-routes.js";
 import {
   registerSessionInternalRoutes,
   registerSessionRoutes,
 } from "./routes/session-routes.js";
+import { registerSlackEvents } from "./routes/slack-events.js";
 
 import type { AppBindings } from "./types.js";
 

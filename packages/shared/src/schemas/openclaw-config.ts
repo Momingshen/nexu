@@ -9,10 +9,12 @@ const gatewayReloadSchema = z.object({
   mode: z.enum(["off", "hot", "hybrid"]),
 });
 
-const controlUiSchema = z.object({
-  allowedOrigins: z.array(z.string()).optional(),
-  dangerouslyAllowHostHeaderOriginFallback: z.boolean().optional(),
-}).optional();
+const controlUiSchema = z
+  .object({
+    allowedOrigins: z.array(z.string()).optional(),
+    dangerouslyAllowHostHeaderOriginFallback: z.boolean().optional(),
+  })
+  .optional();
 
 const gatewayConfigSchema = z.object({
   port: z.number().default(18789),

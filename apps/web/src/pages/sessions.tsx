@@ -1,19 +1,9 @@
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import {
-  Clock,
-  Hash,
-  MessageCircle,
-  MessageSquare,
-} from "lucide-react";
-import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { Clock, Hash, MessageCircle, MessageSquare } from "lucide-react";
+import { useParams } from "react-router-dom";
 import { getV1SessionsById } from "../../lib/api/sdk.gen";
 
 const CHANNEL_ICONS: Record<string, string> = {
@@ -64,7 +54,10 @@ export function SessionsPage() {
   const { data: session } = useQuery({
     queryKey: ["session", id],
     queryFn: async () => {
-      const { data } = await getV1SessionsById({ path: { id: id! } });
+      if (!id) {
+        throw new Error("Session id is required");
+      }
+      const { data } = await getV1SessionsById({ path: { id } });
       return data;
     },
     enabled: !!id,

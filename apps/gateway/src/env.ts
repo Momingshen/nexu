@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { hostname } from "node:os";
+import { homedir } from "node:os";
 import { z } from "zod";
 
 const nodeEnv = z
@@ -9,7 +10,6 @@ const nodeEnv = z
 
 const requiredEnvKeys = [
   "INTERNAL_API_TOKEN",
-  "OPENCLAW_CONFIG_PATH",
   ...(nodeEnv === "production" ? ["RUNTIME_POOL_ID"] : []),
 ] as const;
 
@@ -34,7 +34,8 @@ const envSchema = z.object({
     .default("development"),
   RUNTIME_POOL_ID: z.string().min(1).optional(),
   INTERNAL_API_TOKEN: z.string().min(1),
-  OPENCLAW_CONFIG_PATH: z.string().min(1),
+  OPENCLAW_CONFIG_PATH: z.string().min(1).optional(),
+  OPENCLAW_STATE_DIR: z.string().min(1).optional(),
   RUNTIME_API_BASE_URL: z.string().url().default("http://localhost:3000"),
   RUNTIME_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(2000),
   RUNTIME_POLL_JITTER_MS: z.coerce.number().int().nonnegative().default(300),
@@ -91,13 +92,40 @@ const envSchema = z.object({
     .default(15000),
 });
 
+function normalizeConfigPath(path: string): string {
+  const trimmed = path.trim();
+  if (trimmed.startsWith("~/")) {
+    return `${homedir()}/${trimmed.slice(2)}`;
+  }
+
+  return trimmed;
+}
+
+function resolveDefaultStateDir(profile: string | undefined): string {
+  if (!profile) {
+    return `${homedir()}/.openclaw`;
+  }
+
+  return `${homedir()}/.openclaw-${profile}`;
+}
+
 const parsedEnv = envSchema.parse(process.env);
 const isProduction = parsedEnv.NODE_ENV === "production";
+
+const openclawStateDir = normalizeConfigPath(
+  parsedEnv.OPENCLAW_STATE_DIR ??
+    resolveDefaultStateDir(parsedEnv.OPENCLAW_PROFILE),
+);
+
+const openclawConfigPath = normalizeConfigPath(
+  parsedEnv.OPENCLAW_CONFIG_PATH ?? `${openclawStateDir}/openclaw.json`,
+);
 
 const runtimePoolId = parsedEnv.RUNTIME_POOL_ID ?? hostname();
 
 export const env = {
   ...parsedEnv,
+  OPENCLAW_CONFIG_PATH: openclawConfigPath,
   RUNTIME_POOL_ID: runtimePoolId,
 };
 
@@ -112,4 +140,13 @@ export const envWarnings = {
     const value = process.env[key];
     return value !== undefined && value.trim().length > 0;
   }),
+  openclawConfigPathSource: parsedEnv.OPENCLAW_CONFIG_PATH
+    ? ("env" as const)
+    : parsedEnv.OPENCLAW_STATE_DIR
+      ? ("state_dir_env" as const)
+      : parsedEnv.OPENCLAW_PROFILE
+        ? ("profile_default" as const)
+        : ("default" as const),
+  openclawStateDir: openclawStateDir,
+  openclawConfigPath: openclawConfigPath,
 };

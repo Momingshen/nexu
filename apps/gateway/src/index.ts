@@ -45,7 +45,32 @@ async function main(): Promise<void> {
     });
   }
 
-  log("starting gateway", { poolId: env.RUNTIME_POOL_ID });
+  if (envWarnings.openclawConfigPathSource === "state_dir_env") {
+    log("OPENCLAW_CONFIG_PATH is unset; derived from OPENCLAW_STATE_DIR", {
+      stateDir: envWarnings.openclawStateDir,
+      configPath: envWarnings.openclawConfigPath,
+    });
+  }
+
+  if (envWarnings.openclawConfigPathSource === "profile_default") {
+    log("OPENCLAW_CONFIG_PATH is unset; derived from profile default", {
+      profile: env.OPENCLAW_PROFILE,
+      stateDir: envWarnings.openclawStateDir,
+      configPath: envWarnings.openclawConfigPath,
+    });
+  }
+
+  if (envWarnings.openclawConfigPathSource === "default") {
+    log("OPENCLAW_CONFIG_PATH is unset; using ~/.openclaw/openclaw.json", {
+      stateDir: envWarnings.openclawStateDir,
+      configPath: envWarnings.openclawConfigPath,
+    });
+  }
+
+  log("starting gateway", {
+    poolId: env.RUNTIME_POOL_ID,
+    configPath: env.OPENCLAW_CONFIG_PATH,
+  });
   await waitGatewayReady();
   await registerPoolWithRetry();
   log("pool registered", { poolId: env.RUNTIME_POOL_ID });

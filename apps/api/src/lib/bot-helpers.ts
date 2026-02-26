@@ -1,11 +1,7 @@
 import { createId } from "@paralleldrive/cuid2";
 import { and, eq, or } from "drizzle-orm";
 import { db } from "../db/index.js";
-import {
-  bots,
-  gatewayAssignments,
-  gatewayPools,
-} from "../db/schema/index.js";
+import { bots, gatewayAssignments, gatewayPools } from "../db/schema/index.js";
 
 export async function findDefaultPool(): Promise<string> {
   // Find an active pool — prefer one with a registered gateway (pod_ip set)
@@ -18,8 +14,9 @@ export async function findDefaultPool(): Promise<string> {
   if (withGateway) {
     return withGateway.id;
   }
-  if (rows.length > 0) {
-    return rows[0]!.id;
+  const firstPool = rows[0];
+  if (firstPool) {
+    return firstPool.id;
   }
 
   throw new Error(

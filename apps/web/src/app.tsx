@@ -4,9 +4,9 @@ import { WorkspaceLayout } from "./layouts/workspace-layout";
 import { AuthPage } from "./pages/auth";
 import { BotConfigPage } from "./pages/bot-config";
 import { ChannelsPage } from "./pages/channels";
-import { SessionsPage } from "./pages/sessions";
 import { InvitePage } from "./pages/invite";
 import { LandingPage } from "./pages/landing";
+import { SessionsPage } from "./pages/sessions";
 import { SlackOAuthCallbackPage } from "./pages/slack-oauth-callback";
 
 export function App() {

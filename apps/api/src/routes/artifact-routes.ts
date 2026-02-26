@@ -102,9 +102,7 @@ const updateArtifactInternalRoute = createRoute({
   },
 });
 
-export function registerArtifactInternalRoutes(
-  app: OpenAPIHono<AppBindings>,
-) {
+export function registerArtifactInternalRoutes(app: OpenAPIHono<AppBindings>) {
   // POST /api/internal/artifacts — Skill creates an artifact
   app.openapi(createArtifactRoute, async (c) => {
     const input = c.req.valid("json");
@@ -148,7 +146,11 @@ export function registerArtifactInternalRoutes(
       .from(artifacts)
       .where(eq(artifacts.id, id));
 
-    return c.json(formatArtifact(created!), 201);
+    if (!created) {
+      throw new Error("Artifact insert failed");
+    }
+
+    return c.json(formatArtifact(created), 201);
   });
 
   // PATCH /api/internal/artifacts/:id — update artifact
@@ -193,7 +195,11 @@ export function registerArtifactInternalRoutes(
       .from(artifacts)
       .where(eq(artifacts.id, id));
 
-    return c.json(formatArtifact(updated!), 200);
+    if (!updated) {
+      throw new Error("Artifact update failed");
+    }
+
+    return c.json(formatArtifact(updated), 200);
   });
 }
 
