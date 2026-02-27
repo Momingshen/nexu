@@ -45,6 +45,12 @@ helm upgrade --install nexu ./deploy/k8s/helm/nexu \
 
 Do not keep production secrets in `values.yaml`. Pass secrets with CI/CD or use `ExternalSecrets`.
 
+## Gateway Pool ID
+
+Do not set `RUNTIME_POOL_ID` in Helm values.
+
+The chart runs Gateway as a StatefulSet and generates `RUNTIME_POOL_ID` automatically from the pod index (`apps.kubernetes.io/pod-index`), so each pod gets a stable unique pool ID.
+
 ## External Secrets
 
 This chart can either create a Secret from values or reference an existing Secret.
