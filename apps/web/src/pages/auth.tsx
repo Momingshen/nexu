@@ -39,7 +39,7 @@ export function AuthPage() {
     try {
       await authClient.signIn.social({
         provider,
-        callbackURL: "/invite",
+        callbackURL: window.location.origin,
       });
     } catch {
       setLoading(null);
