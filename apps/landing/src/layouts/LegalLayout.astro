@@ -2,12 +2,12 @@
 import "../styles/global.css";
 
 interface Props {
-  title: string;
+  frontmatter?: { title?: string };
+  title?: string;
 }
 
-const { title } = Astro.props;
-const frontmatter = Astro.props.frontmatter ?? Astro.props;
-const pageTitle = frontmatter.title ?? title ?? "Nexu";
+const { frontmatter, title } = Astro.props;
+const pageTitle = frontmatter?.title ?? title ?? "Nexu";
 ---
 
 <html lang="en">
