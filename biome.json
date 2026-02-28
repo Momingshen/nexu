@@ -37,7 +37,8 @@
       "*.d.ts",
       "openapi.json",
       ".astro",
-      "*.astro"
+      "*.astro",
+      ".openclaw"
     ]
   }
 }

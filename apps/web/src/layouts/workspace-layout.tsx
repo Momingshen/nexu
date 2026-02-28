@@ -66,7 +66,8 @@ function EmptyState({ onGoConfig }: { onGoConfig: () => void }) {
         </h2>
         <p className="mb-6 text-sm leading-relaxed text-text-muted">
           Set up a platform bot first, then mention @Nexu or DM the lobster 🦞
-          in Slack / Discord / WhatsApp — conversations will appear here automatically.
+          in Slack / Discord / WhatsApp — conversations will appear here
+          automatically.
         </p>
         <div className="flex flex-col gap-3 items-center">
           <button
@@ -111,10 +112,7 @@ export function WorkspaceLayout() {
   useEffect(() => {
     if (!showLogoutConfirm) return;
     const handler = (e: MouseEvent) => {
-      if (
-        logoutRef.current &&
-        !logoutRef.current.contains(e.target as Node)
-      ) {
+      if (logoutRef.current && !logoutRef.current.contains(e.target as Node)) {
         setShowLogoutConfirm(false);
       }
     };
@@ -149,9 +147,7 @@ export function WorkspaceLayout() {
   const userInitial = (userEmail[0] ?? "U").toUpperCase();
 
   const showEmptyState =
-    sessions.length === 0 &&
-    !isChannelsPage &&
-    !selectedSessionId;
+    sessions.length === 0 && !isChannelsPage && !selectedSessionId;
 
   return (
     <div className="flex h-screen">
@@ -166,9 +162,7 @@ export function WorkspaceLayout() {
         <div
           className={cn(
             "flex items-center border-b border-border",
-            collapsed
-              ? "px-2 py-3 justify-center"
-              : "px-4 py-3 gap-2.5",
+            collapsed ? "px-2 py-3 justify-center" : "px-4 py-3 gap-2.5",
           )}
         >
           {collapsed ? (
@@ -222,10 +216,7 @@ export function WorkspaceLayout() {
 
           {sessions.length > 0 ? (
             <div
-              className={cn(
-                "space-y-0.5 pb-3",
-                collapsed ? "px-2" : "px-3",
-              )}
+              className={cn("space-y-0.5 pb-3", collapsed ? "px-2" : "px-3")}
             >
               {sessions.map((s) => {
                 const isActive = selectedSessionId === s.id;
@@ -233,9 +224,7 @@ export function WorkspaceLayout() {
                   <button
                     type="button"
                     key={s.id}
-                    onClick={() =>
-                      navigate(`/workspace/sessions/${s.id}`)
-                    }
+                    onClick={() => navigate(`/workspace/sessions/${s.id}`)}
                     title={collapsed ? (s.title ?? undefined) : undefined}
                     className={cn(
                       "flex items-center gap-2.5 w-full rounded-lg transition-colors cursor-pointer",
@@ -248,9 +237,7 @@ export function WorkspaceLayout() {
                     )}
                   >
                     {collapsed ? (
-                      <SidebarPlatformIcon
-                        platform={s.channelType ?? "web"}
-                      />
+                      <SidebarPlatformIcon platform={s.channelType ?? "web"} />
                     ) : (
                       <>
                         <SidebarPlatformIcon
@@ -261,9 +248,7 @@ export function WorkspaceLayout() {
                             {s.title}
                           </div>
                           <div className="text-[10px] text-text-muted truncate">
-                            {formatTime(
-                              s.lastMessageAt || s.updatedAt,
-                            )}
+                            {formatTime(s.lastMessageAt || s.updatedAt)}
                             {s.channelType && ` · ${s.channelType}`}
                           </div>
                         </div>
@@ -360,9 +345,7 @@ export function WorkspaceLayout() {
               <div className="flex justify-center">
                 <button
                   type="button"
-                  onClick={() =>
-                    setShowLogoutConfirm(!showLogoutConfirm)
-                  }
+                  onClick={() => setShowLogoutConfirm(!showLogoutConfirm)}
                   className="group"
                   title={userEmail}
                 >
@@ -374,9 +357,7 @@ export function WorkspaceLayout() {
             ) : (
               <button
                 type="button"
-                onClick={() =>
-                  setShowLogoutConfirm(!showLogoutConfirm)
-                }
+                onClick={() => setShowLogoutConfirm(!showLogoutConfirm)}
                 className="flex gap-2.5 items-center w-full px-2 py-2 rounded-lg transition-all hover:bg-surface-3 cursor-pointer"
               >
                 <div className="flex justify-center items-center w-7 h-7 rounded-md bg-gradient-to-br from-accent/20 to-accent/5 text-[10px] font-bold text-accent ring-1 ring-accent/10 shrink-0">
@@ -403,9 +384,7 @@ export function WorkspaceLayout() {
       {/* Main content */}
       <main className="flex-1 overflow-y-auto min-h-0 bg-surface-0">
         {showEmptyState ? (
-          <EmptyState
-            onGoConfig={() => navigate("/workspace/channels")}
-          />
+          <EmptyState onGoConfig={() => navigate("/workspace/channels")} />
         ) : (
           <Outlet />
         )}

@@ -29,7 +29,11 @@ export function InviteGuardLayout() {
 
   // Onboarding guard: if invite accepted but onboarding not completed,
   // and user is NOT already on the onboarding page, redirect there
-  if (profile && !profile.onboardingCompleted && !location.pathname.startsWith("/onboarding")) {
+  if (
+    profile &&
+    !profile.onboardingCompleted &&
+    !location.pathname.startsWith("/onboarding")
+  ) {
     const returnTo = encodeURIComponent(location.pathname + location.search);
     return <Navigate to={`/onboarding?returnTo=${returnTo}`} replace />;
   }

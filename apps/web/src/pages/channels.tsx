@@ -16,13 +16,12 @@ import {
   Key,
   Link2,
   Loader2,
-  RefreshCw,
   RotateCcw,
   Shield,
   Smartphone,
   Zap,
 } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import "@/lib/api";
 import {
@@ -62,11 +61,20 @@ interface StepDef {
 function renderBold(text: string) {
   const parts = text.split(/(\*\*.+?\*\*)/g);
   if (parts.length === 1) return text;
-  return parts.map((part, i) =>
-    part.startsWith("**") && part.endsWith("**")
-      ? <strong key={i} className="font-semibold text-text-primary">{part.slice(2, -2)}</strong>
-      : <span key={i}>{part}</span>,
-  );
+  const result: ReactNode[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i] as string;
+    if (part.startsWith("**") && part.endsWith("**")) {
+      result.push(
+        <strong key={i} className="font-semibold text-text-primary">
+          {part.slice(2, -2)}
+        </strong>,
+      );
+    } else {
+      result.push(<span key={i}>{part}</span>);
+    }
+  }
+  return result;
 }
 
 const DISCORD_STEPS: StepDef[] = [
@@ -75,7 +83,10 @@ const DISCORD_STEPS: StepDef[] = [
     title: "Create Discord Application",
     desc: "Go to the Discord Developer Portal and create a new application.",
     detail: [
-      { text: "Discord Developer Portal", url: "https://discord.com/developers/applications" },
+      {
+        text: "Discord Developer Portal",
+        url: "https://discord.com/developers/applications",
+      },
       'Click **"New Application"**',
       "Set the App Name to **Nexu**",
       "Save and navigate to the **Bot** page",
@@ -129,7 +140,7 @@ const SLACK_STEPS: StepDef[] = [
     desc: "Add Bot Token Scopes under OAuth & Permissions.",
     detail: [
       "Go to App → **OAuth & Permissions**",
-      "Scroll down to **\"Bot Token Scopes\"**",
+      'Scroll down to **"Bot Token Scopes"**',
       "**Add** the following scopes:",
       "  · chat:write — send messages",
       "  · app_mentions:read — receive @mentions",
@@ -144,8 +155,8 @@ const SLACK_STEPS: StepDef[] = [
     detail: [
       "Go to App → **Install App**",
       'Click **"Install to Workspace"** and authorize',
-      "After install, go to App → **OAuth & Permissions** → copy the **\"Bot User OAuth Token\"** (starts with xoxb-)",
-      "Then go to App → **Basic Information** → **App Credentials** → copy the **\"Signing Secret\"**",
+      'After install, go to App → **OAuth & Permissions** → copy the **"Bot User OAuth Token"** (starts with xoxb-)',
+      'Then go to App → **Basic Information** → **App Credentials** → copy the **"Signing Secret"**',
       "Paste both values below:",
     ],
     hasInputs: true,
@@ -156,15 +167,15 @@ const SLACK_STEPS: StepDef[] = [
     desc: "Set up Event Subscriptions so Slack forwards messages to Nexu.",
     detail: [
       "Go to App → **Event Subscriptions**",
-      "Toggle **\"Enable Events\"** on",
+      'Toggle **"Enable Events"** on',
       "Enter the following Request URL:",
     ],
     copyable: "/api/slack/events",
     detail2: [
-      "Under **\"Subscribe to bot events\"**, add:",
+      'Under **"Subscribe to bot events"**, add:',
       "  · app_mention — when someone @mentions your bot",
       "  · message.channels — messages in public channels",
-      "Click **\"Save Changes\"**",
+      'Click **"Save Changes"**',
       "In any Slack channel, type **/invite @Nexu**",
       'Send **"@Nexu hello"** to test',
     ],
@@ -177,7 +188,10 @@ const WHATSAPP_STEPS: StepDef[] = [
     title: "Create Meta App",
     desc: "Go to Meta for Developers and create a new Business App.",
     detail: [
-      { text: "Meta for Developers", url: "https://developers.facebook.com/apps" },
+      {
+        text: "Meta for Developers",
+        url: "https://developers.facebook.com/apps",
+      },
       'Click "Create App"',
       "Select the Business type",
       "Set the App Name to Nexu",
@@ -231,7 +245,14 @@ const STEPS_MAP: Record<Platform, StepDef[]> = {
 
 const CREDENTIAL_FIELDS: Record<
   Platform,
-  { label1: string; placeholder1: string; hint1: string; label2: string; placeholder2: string; hint2: string }
+  {
+    label1: string;
+    placeholder1: string;
+    hint1: string;
+    label2: string;
+    placeholder2: string;
+    hint2: string;
+  }
 > = {
   discord: {
     label1: "Application ID",
@@ -244,7 +265,8 @@ const CREDENTIAL_FIELDS: Record<
   slack: {
     label1: "Bot User OAuth Token",
     placeholder1: "xoxb-xxxxxxxxxxxxx",
-    hint1: "App → OAuth & Permissions → Bot User OAuth Token (starts with xoxb-)",
+    hint1:
+      "App → OAuth & Permissions → Bot User OAuth Token (starts with xoxb-)",
     label2: "Signing Secret",
     placeholder2: "xxxxxxxxxxxxxxxxxxxxxxx",
     hint2: "App → Basic Information → App Credentials → Signing Secret",
@@ -275,9 +297,7 @@ export function ChannelsPage() {
   });
 
   const channels = channelsData?.channels ?? [];
-  const currentChannel = channels.find(
-    (ch) => ch.channelType === platform,
-  );
+  const currentChannel = channels.find((ch) => ch.channelType === platform);
   const isConfigured = !!currentChannel;
   const showGuide = !isConfigured || forceGuide;
 
@@ -290,9 +310,7 @@ export function ChannelsPage() {
     <div className="p-8 mx-auto max-w-4xl">
       {/* Page header */}
       <div className="mb-6">
-        <h1 className="text-lg font-bold text-text-primary">
-          Channels
-        </h1>
+        <h1 className="text-lg font-bold text-text-primary">Channels</h1>
         <p className="text-[13px] text-text-muted mt-1">
           Connect your messaging platforms and let Nexu 🦞 join your workspace
         </p>
@@ -302,9 +320,7 @@ export function ChannelsPage() {
       <div className="grid grid-cols-3 gap-3 mb-6">
         {PLATFORMS.map((p) => {
           const isActive = platform === p.id;
-          const connected = channels.some(
-            (ch) => ch.channelType === p.id,
-          );
+          const connected = channels.some((ch) => ch.channelType === p.id);
           return (
             <button
               type="button"
@@ -334,15 +350,9 @@ export function ChannelsPage() {
                 </div>
               </div>
               {connected ? (
-                <CheckCircle2
-                  size={14}
-                  className="text-emerald-500 shrink-0"
-                />
+                <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />
               ) : (
-                <Circle
-                  size={14}
-                  className="text-text-muted/30 shrink-0"
-                />
+                <Circle size={14} className="text-text-muted/30 shrink-0" />
               )}
             </button>
           );
@@ -371,19 +381,16 @@ export function ChannelsPage() {
         platform === "whatsapp" ? (
           <WhatsAppQRView />
         ) : (
-          <SetupGuideView
-            platform={platform}
-            queryClient={queryClient}
-          />
+          <SetupGuideView platform={platform} queryClient={queryClient} />
         )
-      ) : (
+      ) : currentChannel ? (
         <ConfiguredView
           platform={platform}
-          channel={currentChannel!}
+          channel={currentChannel}
           queryClient={queryClient}
           onShowGuide={() => setForceGuide(true)}
         />
-      )}
+      ) : null}
     </div>
   );
 }
@@ -445,13 +452,13 @@ function SetupGuideView({
   const [currentStep, setCurrentStep] = useState(0);
   const [copied, setCopied] = useState(false);
   const steps = STEPS_MAP[platform];
-  const activeStep = steps[currentStep]!;
+  const activeStep = steps[currentStep];
+  if (!activeStep) return null;
   const fields = CREDENTIAL_FIELDS[platform];
 
   // Credential state
   const [field1, setField1] = useState("");
   const [field2, setField2] = useState("");
-
 
   const [oauthLoading, setOauthLoading] = useState(false);
 
@@ -517,8 +524,7 @@ function SetupGuideView({
     else if (platform === "slack") slackConnect.mutate();
   };
 
-  const isPending =
-    discordConnect.isPending || slackConnect.isPending;
+  const isPending = discordConnect.isPending || slackConnect.isPending;
 
   return (
     <div className="flex gap-6">
@@ -552,11 +558,7 @@ function SetupGuideView({
                         : "bg-surface-3 text-text-muted"
                   }`}
                 >
-                  {i < currentStep ? (
-                    <Check size={11} />
-                  ) : (
-                    s.step
-                  )}
+                  {i < currentStep ? <Check size={11} /> : s.step}
                 </div>
                 <span className="text-[12px] font-medium truncate">
                   {s.title}
@@ -605,11 +607,11 @@ function SetupGuideView({
 
           {activeStep.detail && (
             <div className="ml-12 space-y-2 mb-5">
-              {activeStep.detail.map((d, i) => {
+              {activeStep.detail.map((d) => {
                 if (typeof d === "object") {
                   return (
                     <div
-                      key={i}
+                      key={d.url}
                       className="text-[13px] text-text-secondary leading-relaxed"
                     >
                       <span className="flex gap-2.5 items-start">
@@ -631,7 +633,7 @@ function SetupGuideView({
                 }
                 return (
                   <div
-                    key={i}
+                    key={d}
                     className="text-[13px] text-text-secondary leading-relaxed"
                   >
                     {d.startsWith("  ") ? (
@@ -650,66 +652,85 @@ function SetupGuideView({
             </div>
           )}
 
-          {platform === "discord" && activeStep.step === steps.length && field1.trim() && (
-            <div className="mb-5 ml-12">
-              <a
-                href={`https://discord.com/oauth2/authorize?client_id=${field1}&scope=bot&permissions=68608`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex gap-1.5 items-center px-4 py-2 text-[12px] font-medium text-white rounded-lg bg-[#5865F2] hover:bg-[#4752C4] transition-all"
-              >
-                <ExternalLink size={13} /> Add Bot to Server
-              </a>
-            </div>
-          )}
-
-          {activeStep.copyable && (() => {
-            const fullUrl = activeStep.copyable!.startsWith("/")
-              ? `${window.location.origin}${activeStep.copyable}`
-              : activeStep.copyable!;
-            return (
-            <div className="mb-5 ml-12">
-              <div className="flex gap-2 items-center p-3 rounded-lg border bg-surface-0 border-border font-mono text-[12px]">
-                <code className="flex-1 break-all text-text-secondary">
-                  {fullUrl}
-                </code>
-                <button
-                  type="button"
-                  onClick={() => handleCopy(fullUrl)}
-                  className="p-1.5 rounded-lg transition-all text-text-muted hover:text-text-primary hover:bg-surface-3 shrink-0"
-                  title="Copy"
+          {platform === "discord" &&
+            activeStep.step === steps.length &&
+            field1.trim() && (
+              <div className="mb-5 ml-12">
+                <a
+                  href={`https://discord.com/oauth2/authorize?client_id=${field1}&scope=bot&permissions=68608`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex gap-1.5 items-center px-4 py-2 text-[12px] font-medium text-white rounded-lg bg-[#5865F2] hover:bg-[#4752C4] transition-all"
                 >
-                  {copied ? (
-                    <Check
-                      size={13}
-                      className="text-emerald-500"
-                    />
-                  ) : (
-                    <Copy size={13} />
-                  )}
-                </button>
+                  <ExternalLink size={13} /> Add Bot to Server
+                </a>
               </div>
-            </div>
-            );
-          })()}
+            )}
+
+          {activeStep.copyable &&
+            (() => {
+              const copyable = activeStep.copyable as string;
+              const fullUrl = copyable.startsWith("/")
+                ? `${window.location.origin}${copyable}`
+                : copyable;
+              return (
+                <div className="mb-5 ml-12">
+                  <div className="flex gap-2 items-center p-3 rounded-lg border bg-surface-0 border-border font-mono text-[12px]">
+                    <code className="flex-1 break-all text-text-secondary">
+                      {fullUrl}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(fullUrl)}
+                      className="p-1.5 rounded-lg transition-all text-text-muted hover:text-text-primary hover:bg-surface-3 shrink-0"
+                      title="Copy"
+                    >
+                      {copied ? (
+                        <Check size={13} className="text-emerald-500" />
+                      ) : (
+                        <Copy size={13} />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
 
           {activeStep.detail2 && (
             <div className="ml-12 space-y-2 mb-5">
-              {activeStep.detail2.map((d, i) => {
+              {activeStep.detail2.map((d) => {
                 if (typeof d === "object") {
                   return (
-                    <div key={i} className="text-[13px] text-text-secondary leading-relaxed">
+                    <div
+                      key={d.url}
+                      className="text-[13px] text-text-secondary leading-relaxed"
+                    >
                       <span className="flex gap-2.5 items-start">
                         <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-accent/40 shrink-0" />
-                        <span>Open{" "}<a href={d.url} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline underline-offset-2">{d.text} ↗</a></span>
+                        <span>
+                          Open{" "}
+                          <a
+                            href={d.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-accent hover:underline underline-offset-2"
+                          >
+                            {d.text} ↗
+                          </a>
+                        </span>
                       </span>
                     </div>
                   );
                 }
                 return (
-                  <div key={i} className="text-[13px] text-text-secondary leading-relaxed">
+                  <div
+                    key={d}
+                    className="text-[13px] text-text-secondary leading-relaxed"
+                  >
                     {d.startsWith("  ") ? (
-                      <span className="ml-4 text-text-muted font-mono text-[12px]">{d.trim()}</span>
+                      <span className="ml-4 text-text-muted font-mono text-[12px]">
+                        {d.trim()}
+                      </span>
                     ) : (
                       <span className="flex gap-2.5 items-start">
                         <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-accent/40 shrink-0" />
@@ -746,9 +767,7 @@ function SetupGuideView({
           <div className="flex justify-between items-center pt-4 mt-2 border-t border-border">
             <button
               type="button"
-              onClick={() =>
-                setCurrentStep(Math.max(0, currentStep - 1))
-              }
+              onClick={() => setCurrentStep(Math.max(0, currentStep - 1))}
               disabled={currentStep === 0}
               className="px-4 py-2 text-[12px] font-medium text-text-secondary rounded-lg border border-border hover:border-border-hover hover:bg-surface-3 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             >
@@ -779,7 +798,9 @@ function SetupGuideView({
             ) : (
               <button
                 type="button"
-                onClick={() => queryClient.invalidateQueries({ queryKey: ["channels"] })}
+                onClick={() =>
+                  queryClient.invalidateQueries({ queryKey: ["channels"] })
+                }
                 className="flex gap-1 items-center px-5 py-2 text-[12px] font-medium text-white rounded-lg transition-all bg-accent hover:bg-accent-hover"
               >
                 <Check size={13} />
@@ -793,9 +814,7 @@ function SetupGuideView({
         <div className="flex gap-3 items-center p-4 mt-4 rounded-xl border bg-surface-1 border-border">
           <AlertCircle size={15} className="text-accent shrink-0" />
           <div className="text-[12px] text-text-muted leading-relaxed">
-            <span className="font-medium text-text-secondary">
-              Need help?
-            </span>{" "}
+            <span className="font-medium text-text-secondary">Need help?</span>{" "}
             Check out the{" "}
             <a
               href="https://docs.nexu.dev"
@@ -813,7 +832,8 @@ function SetupGuideView({
               className="text-accent hover:underline underline-offset-2"
             >
               Discord
-            </a>.
+            </a>
+            .
           </div>
         </div>
       </div>
@@ -962,18 +982,18 @@ function ConfiguredView({
         </div>
         <div className="space-y-3">
           <div>
-            <label className="text-[11px] text-text-muted font-medium mb-1.5 block">
+            <span className="text-[11px] text-text-muted font-medium mb-1.5 block">
               Account ID
-            </label>
+            </span>
             <div className="px-3 py-2.5 w-full text-[13px] rounded-lg border border-border bg-surface-0 text-text-secondary">
               {channel.accountId}
             </div>
           </div>
           {channel.teamName && (
             <div>
-              <label className="text-[11px] text-text-muted font-medium mb-1.5 block">
+              <span className="text-[11px] text-text-muted font-medium mb-1.5 block">
                 {platform === "discord" ? "Server Name" : "Team Name"}
-              </label>
+              </span>
               <div className="px-3 py-2.5 w-full text-[13px] rounded-lg border border-border bg-surface-0 text-text-secondary">
                 {channel.teamName}
               </div>
@@ -1034,9 +1054,7 @@ function WhatsAppQRView() {
       <div className="flex gap-3 items-center p-4 mt-4 rounded-xl border bg-surface-1 border-border">
         <AlertCircle size={15} className="text-accent shrink-0" />
         <div className="text-[12px] text-text-muted leading-relaxed">
-          <span className="font-medium text-text-secondary">
-            Need help?
-          </span>{" "}
+          <span className="font-medium text-text-secondary">Need help?</span>{" "}
           Check out the{" "}
           <a
             href="https://docs.nexu.dev"
@@ -1054,7 +1072,8 @@ function WhatsAppQRView() {
             className="text-accent hover:underline underline-offset-2"
           >
             Discord
-          </a>.
+          </a>
+          .
         </div>
       </div>
     </div>

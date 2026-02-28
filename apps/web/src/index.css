@@ -2,8 +2,9 @@
 
 @theme {
   /* Fonts */
-  --font-sans: 'Inter', 'SF Pro Display', -apple-system, 'Noto Sans SC', 'PingFang SC', sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  --font-sans: "Inter", "SF Pro Display", -apple-system, "Noto Sans SC",
+    "PingFang SC", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
 
   /* shadcn tokens — kept for component compat */
   --color-background: #fdfcfa;
@@ -61,11 +62,20 @@
     scrollbar-width: thin;
     scrollbar-color: var(--color-surface-4) transparent;
   }
-  *::-webkit-scrollbar { width: 6px; }
-  *::-webkit-scrollbar-track { background: transparent; }
-  *::-webkit-scrollbar-thumb { background-color: var(--color-surface-4); border-radius: 3px; }
+  *::-webkit-scrollbar {
+    width: 6px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--color-surface-4);
+    border-radius: 3px;
+  }
 
-  html, body, #root {
+  html,
+  body,
+  #root {
     height: 100%;
     margin: 0;
   }

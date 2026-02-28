@@ -14,13 +14,13 @@ import {
 } from "./routes/channel-routes.js";
 import { registerInviteRoutes } from "./routes/invite-routes.js";
 import { registerModelRoutes } from "./routes/model-routes.js";
+import { registerOnboardingRoutes } from "./routes/onboarding-routes.js";
 import { registerPoolRoutes } from "./routes/pool-routes.js";
 import {
   registerSessionInternalRoutes,
   registerSessionRoutes,
 } from "./routes/session-routes.js";
 import { registerSlackEvents } from "./routes/slack-events.js";
-import { registerOnboardingRoutes } from "./routes/onboarding-routes.js";
 import { registerUserRoutes } from "./routes/user-routes.js";
 
 import type { AppBindings } from "./types.js";

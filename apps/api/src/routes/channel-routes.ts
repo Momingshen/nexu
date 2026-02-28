@@ -374,10 +374,7 @@ export function registerChannelRoutes(app: OpenAPIHono<AppBindings>) {
       .select()
       .from(botChannels)
       .where(
-        and(
-          eq(botChannels.botId, botId),
-          eq(botChannels.channelType, "slack"),
-        ),
+        and(eq(botChannels.botId, botId), eq(botChannels.channelType, "slack")),
       );
 
     const existingChannel = existingChannels.find(
@@ -386,7 +383,8 @@ export function registerChannelRoutes(app: OpenAPIHono<AppBindings>) {
 
     if (existingChannel || globalExisting) {
       // Reconnection — reuse existing channel or the one referenced by the webhook route
-      channelId = existingChannel?.id ?? globalExisting!.botChannelId;
+      channelId = (existingChannel?.id ??
+        globalExisting?.botChannelId) as string;
 
       await db
         .update(botChannels)
@@ -540,10 +538,9 @@ export function registerChannelRoutes(app: OpenAPIHono<AppBindings>) {
 
     // Validate bot token against Discord API
     try {
-      const discordResp = await fetch(
-        "https://discord.com/api/v10/users/@me",
-        { headers: { Authorization: `Bot ${input.botToken}` } },
-      );
+      const discordResp = await fetch("https://discord.com/api/v10/users/@me", {
+        headers: { Authorization: `Bot ${input.botToken}` },
+      });
       if (!discordResp.ok) {
         const status = discordResp.status;
         return c.json(

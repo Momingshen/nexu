@@ -10,7 +10,7 @@
     "build": "pnpm -r build",
     "check:esm-imports": "node scripts/check-esm-specifiers.mjs",
     "typecheck": "pnpm -r typecheck",
-    "lint": "biome check .",
+    "lint": "biome check . && pnpm -r typecheck",
     "format": "biome check --write .",
     "test": "pnpm -r test",
     "generate-types": "pnpm --filter @nexu/api generate-openapi && pnpm --filter @nexu/web generate-sdk",

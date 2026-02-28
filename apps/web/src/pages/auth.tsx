@@ -225,9 +225,7 @@ export function AuthPage() {
                 <div className="w-full border-t border-border" />
               </div>
               <div className="relative flex justify-center text-[12px]">
-                <span className="bg-surface-0 px-3 text-text-muted">
-                  or
-                </span>
+                <span className="bg-surface-0 px-3 text-text-muted">or</span>
               </div>
             </div>
 
@@ -235,10 +233,14 @@ export function AuthPage() {
             <form onSubmit={handleEmailAuth} className="space-y-3">
               {!isLogin && (
                 <div className="space-y-1.5">
-                  <label className="text-[12px] text-text-secondary font-medium">
+                  <label
+                    htmlFor="auth-name"
+                    className="text-[12px] text-text-secondary font-medium"
+                  >
                     Name
                   </label>
                   <input
+                    id="auth-name"
                     type="text"
                     placeholder="Your name"
                     value={name}
@@ -248,10 +250,14 @@ export function AuthPage() {
                 </div>
               )}
               <div className="space-y-1.5">
-                <label className="text-[12px] text-text-secondary font-medium">
+                <label
+                  htmlFor="auth-email"
+                  className="text-[12px] text-text-secondary font-medium"
+                >
                   Email
                 </label>
                 <input
+                  id="auth-email"
                   type="email"
                   placeholder="you@example.com"
                   value={email}
@@ -261,10 +267,14 @@ export function AuthPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[12px] text-text-secondary font-medium">
+                <label
+                  htmlFor="auth-password"
+                  className="text-[12px] text-text-secondary font-medium"
+                >
                   Password
                 </label>
                 <input
+                  id="auth-password"
                   type="password"
                   placeholder="Min 8 characters"
                   value={password}
@@ -301,6 +311,29 @@ export function AuthPage() {
               </Link>
             </div>
           </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-center gap-3 px-6 py-4 text-[11px] text-text-muted">
+          <a
+            href="/terms"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-text-secondary transition-colors"
+          >
+            Terms of Service
+          </a>
+          <span className="text-border">·</span>
+          <a
+            href="/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-text-secondary transition-colors"
+          >
+            Privacy Policy
+          </a>
+          <span className="text-border">·</span>
+          <span>&copy; 2026 Nexu by Refly</span>
         </div>
       </div>
     </div>
