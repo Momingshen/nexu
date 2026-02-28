@@ -12,3 +12,4 @@ data:
   BETTER_AUTH_URL: {{ .Values.config.BETTER_AUTH_URL | quote }}
   RUNTIME_MANAGE_OPENCLAW_PROCESS: {{ .Values.config.RUNTIME_MANAGE_OPENCLAW_PROCESS | quote }}
   NEXU_API_URL: {{ printf "http://%s:%v" (include "nexu.api.fullname" .) .Values.api.service.port | quote }}
+  EMAIL_SENDER: {{ .Values.config.EMAIL_SENDER | quote }}
