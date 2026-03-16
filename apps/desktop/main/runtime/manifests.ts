@@ -32,6 +32,7 @@ export function createRuntimeUnitManifests(
     process.env,
   );
   const runtimeRoot = ensureDir(resolve(userDataPath, "runtime"));
+  const logsDir = ensureDir(resolve(userDataPath, "../logs/runtime-units"));
   const pgliteDataPath = ensureDir(resolve(runtimeRoot, "pglite"));
   const openclawRuntimeRoot = ensureDir(resolve(runtimeRoot, "openclaw"));
   const openclawConfigDir = ensureDir(resolve(openclawRuntimeRoot, "config"));
@@ -82,6 +83,7 @@ export function createRuntimeUnitManifests(
       port: webPort,
       startupTimeoutMs: 10_000,
       autoStart: true,
+      logFilePath: resolve(logsDir, "web.log"),
       env: {
         WEB_HOST: "127.0.0.1",
         WEB_PORT: String(webPort),
@@ -95,6 +97,7 @@ export function createRuntimeUnitManifests(
       launchStrategy: "embedded",
       port: null,
       autoStart: true,
+      logFilePath: resolve(logsDir, "control-plane.log"),
     },
     {
       id: "pglite",
@@ -108,6 +111,7 @@ export function createRuntimeUnitManifests(
       port: pglitePort,
       startupTimeoutMs: 10_000,
       autoStart: getBooleanEnv("NEXU_DESKTOP_AUTOSTART_PGLITE", true),
+      logFilePath: resolve(logsDir, "pglite.log"),
       env: {
         PGLITE_DATA_DIR: pgliteDataPath,
         PGLITE_HOST: "127.0.0.1",
@@ -126,6 +130,7 @@ export function createRuntimeUnitManifests(
       port: apiPort,
       startupTimeoutMs: 20_000,
       autoStart: getBooleanEnv("NEXU_DESKTOP_AUTOSTART_API", true),
+      logFilePath: resolve(logsDir, "api.log"),
       env: {
         FORCE_COLOR: "1",
         PORT: String(apiPort),
@@ -148,6 +153,7 @@ export function createRuntimeUnitManifests(
       cwd: gatewaySidecarRoot,
       port: null,
       autoStart: getBooleanEnv("NEXU_DESKTOP_AUTOSTART_GATEWAY", true),
+      logFilePath: resolve(logsDir, "gateway.log"),
       env: {
         FORCE_COLOR: "1",
         NODE_ENV: "development",
@@ -174,6 +180,7 @@ export function createRuntimeUnitManifests(
       binaryPath: process.env.NEXU_OPENCLAW_BIN ?? openclawBinPath,
       port: null,
       autoStart: true,
+      logFilePath: resolve(logsDir, "openclaw.log"),
     },
   ];
 }
