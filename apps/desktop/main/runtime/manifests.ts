@@ -131,6 +131,7 @@ export function createRuntimeUnitManifests(
     process.env,
     {
       openclawBinPath: resolve(openclawSidecarRoot, "bin/openclaw"),
+      resourcesPath: isPackaged ? electronRoot : undefined,
     },
   );
   const logsDir = ensureDir(resolve(userDataPath, "../logs/runtime-units"));
@@ -240,6 +241,10 @@ export function createRuntimeUnitManifests(
         INTERNAL_API_TOKEN: internalApiToken,
         SKILL_API_TOKEN: skillApiToken,
         NEXU_DESKTOP_MODE: "true",
+        NEXU_CLOUD_URL: runtimeConfig.urls.nexuCloud,
+        ...(runtimeConfig.urls.nexuLink
+          ? { NEXU_LINK_URL: runtimeConfig.urls.nexuLink }
+          : {}),
       },
     },
     {

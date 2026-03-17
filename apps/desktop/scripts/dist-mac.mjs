@@ -194,7 +194,26 @@ async function stapleNotarizedAppBundles() {
   }
 }
 
+async function ensureBuildConfig() {
+  const configPath = resolve(electronRoot, "build-config.json");
+
+  try {
+    await readFile(configPath, "utf8");
+    console.log("[dist:mac] using existing build-config.json");
+  } catch {
+    // Create default build config (production URLs)
+    const defaultConfig = {
+      NEXU_CLOUD_URL: "https://nexu.io",
+      NEXU_LINK_URL: null,
+    };
+    await writeFile(configPath, JSON.stringify(defaultConfig, null, 2));
+    console.log("[dist:mac] created default build-config.json");
+  }
+}
+
 async function main() {
+  await ensureBuildConfig();
+
   const desktopEnv = await loadDesktopEnv();
   const env = {
     ...process.env,
