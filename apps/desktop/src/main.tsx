@@ -919,6 +919,16 @@ function DesktopShell() {
     void getRuntimeConfig()
       .then(setRuntimeConfig)
       .catch(() => null);
+
+    // In packaged builds, default to web surface in immersive mode
+    void getAppInfo()
+      .then((info) => {
+        if (!info.isDev) {
+          setActiveSurface("web");
+          setChromeMode("immersive");
+        }
+      })
+      .catch(() => null);
   }, []);
 
   useEffect(() => {
