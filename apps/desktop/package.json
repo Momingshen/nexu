@@ -46,6 +46,7 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.6.0",
+    "sharp": "0.34.5",
     "sonner": "^2.0.1",
     "tailwind-merge": "^3.0.1"
   },
@@ -86,6 +87,14 @@
       {
         "from": "static/bundled-skills",
         "to": "static/bundled-skills"
+      },
+      {
+        "from": "node_modules/sharp",
+        "to": "bundled-node-modules/sharp"
+      },
+      {
+        "from": "node_modules/@img",
+        "to": "bundled-node-modules/@img"
       },
       {
         "from": "build-config.json",

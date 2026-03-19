@@ -202,6 +202,23 @@ function buildOpenclawNodePath(
   return buildNode22Path();
 }
 
+export function buildSkillNodePath(
+  electronRoot: string,
+  isPackaged: boolean,
+  inheritedNodePath = process.env.NODE_PATH,
+): string {
+  const bundledModulesPath = isPackaged
+    ? path.resolve(electronRoot, "bundled-node-modules")
+    : path.resolve(electronRoot, "node_modules");
+  const inheritedEntries = (inheritedNodePath ?? "")
+    .split(path.delimiter)
+    .filter((entry) => entry.length > 0);
+
+  return Array.from(new Set([bundledModulesPath, ...inheritedEntries])).join(
+    path.delimiter,
+  );
+}
+
 function ensurePackagedOpenclawSidecar(
   runtimeSidecarBaseRoot: string,
   runtimeRoot: string,
@@ -300,6 +317,7 @@ export function createRuntimeUnitManifests(
   const authUrl = runtimeConfig.urls.auth;
   const electronNodeRunner = resolveElectronNodeRunner();
   const openclawNodePath = buildOpenclawNodePath(openclawSidecarRoot);
+  const skillNodePath = buildSkillNodePath(electronRoot, isPackaged);
 
   // Keep all default ports and local URLs defined from this one manifest factory. Other desktop
   // entry points still mirror a few of these defaults directly, so changes here should be treated
@@ -430,6 +448,7 @@ export function createRuntimeUnitManifests(
           openclawPackageRoot,
           "extensions",
         ),
+        NODE_PATH: skillNodePath,
         OPENCLAW_DISABLE_BONJOUR: "1",
         TMPDIR: openclawTempDir,
         RUNTIME_MANAGE_OPENCLAW_PROCESS: "true",
