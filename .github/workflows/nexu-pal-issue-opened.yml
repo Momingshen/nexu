@@ -33,6 +33,8 @@ jobs:
           repo_token: ${{ steps.app-token.outputs.token }}
           issue_message: |
             Hey, welcome to Nexu! 🎉 Thanks so much for taking the time to open your first issue here — we really appreciate it. A maintainer will be along shortly to take a look. In the meantime, feel free to share any extra context that might help us help you!
+          pr_message: |
+            Hey, welcome to Nexu! 🎉 Thanks so much for opening your first pull request — we really appreciate the contribution. A maintainer will review it shortly.
 
       - name: Process issue
         env:
