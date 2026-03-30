@@ -16,6 +16,7 @@ import type {
   UpdateSessionInput,
 } from "@nexu/shared";
 import type { ControllerEnv } from "../app/env.js";
+import { proxyFetch } from "../lib/proxy-fetch.js";
 
 export type ChatMessage = {
   id: string;
@@ -1064,7 +1065,7 @@ export class SessionsRuntime {
     }
 
     try {
-      const response = await fetch(
+      const response = await proxyFetch(
         `https://open.feishu.cn/open-apis/im/v1/messages/${encodeURIComponent(messageId)}`,
         {
           headers: {
@@ -1148,7 +1149,7 @@ export class SessionsRuntime {
     }
 
     try {
-      const response = await fetch(
+      const response = await proxyFetch(
         "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
         {
           method: "POST",

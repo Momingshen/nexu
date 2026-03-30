@@ -150,6 +150,16 @@ export function registerIpcHandlers(
             sentryMainEnabled,
             sentryDsn,
             nativeCrashPipeline: sentryMainEnabled ? "sentry" : "local-only",
+            proxy: {
+              source: runtimeConfig.proxy.source,
+              httpProxyRedacted:
+                runtimeConfig.proxy.diagnostics.httpProxyRedacted,
+              httpsProxyRedacted:
+                runtimeConfig.proxy.diagnostics.httpsProxyRedacted,
+              allProxyRedacted:
+                runtimeConfig.proxy.diagnostics.allProxyRedacted,
+              noProxy: [...runtimeConfig.proxy.bypass],
+            },
           };
 
           return result;

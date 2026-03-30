@@ -81,6 +81,8 @@ export interface LaunchdBootstrapEnv {
   skillNodePath: string;
   /** TMPDIR for openclaw temp files */
   openclawTmpDir: string;
+  /** Normalized proxy env propagated to controller/openclaw launchd services */
+  proxyEnv: Record<string, string>;
 }
 
 export interface LaunchdBootstrapResult {
@@ -415,6 +417,7 @@ export async function bootstrapWithLaunchd(
     openclawExtensionsDir: env.openclawExtensionsDir,
     skillNodePath: env.skillNodePath,
     openclawTmpDir: env.openclawTmpDir,
+    proxyEnv: env.proxyEnv,
   };
   await cleanupStalePlists(launchd, plistDir, labels, cleanupPlistEnv);
 

@@ -416,6 +416,13 @@ export type DiagnosticsInfo = {
   sentryMainEnabled: boolean;
   sentryDsn: string | null;
   nativeCrashPipeline: "local-only" | "sentry";
+  proxy: {
+    source: "env" | "system" | "direct";
+    httpProxyRedacted: string | null;
+    httpsProxyRedacted: string | null;
+    allProxyRedacted: string | null;
+    noProxy: string[];
+  };
 };
 
 export type DesktopSurface =

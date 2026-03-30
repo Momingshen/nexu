@@ -21,13 +21,10 @@ import type {
 } from "@nexu/shared";
 import type { ControllerEnv } from "../app/env.js";
 import { logger } from "../lib/logger.js";
+import { proxyFetch } from "../lib/proxy-fetch.js";
 import type { NexuConfigStore } from "../store/nexu-config-store.js";
 import type { OpenClawGatewayService } from "./openclaw-gateway-service.js";
 import type { OpenClawSyncService } from "./openclaw-sync-service.js";
-
-function timeoutSignal(ms: number): AbortSignal {
-  return AbortSignal.timeout(ms);
-}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -499,8 +496,8 @@ async function fetchWechatQrCode(
     base,
   );
   try {
-    const response = await fetch(url.toString(), {
-      signal: timeoutSignal(WECHAT_QR_FETCH_TIMEOUT_MS),
+    const response = await proxyFetch(url.toString(), {
+      timeoutMs: WECHAT_QR_FETCH_TIMEOUT_MS,
     });
     if (!response.ok) {
       throw new Error(
@@ -531,7 +528,7 @@ async function pollWechatQrStatus(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), WECHAT_QR_POLL_TIMEOUT_MS);
   try {
-    const response = await fetch(url.toString(), {
+    const response = await proxyFetch(url.toString(), {
       headers: { "iLink-App-ClientVersion": "1" },
       signal: controller.signal,
     });
@@ -576,9 +573,9 @@ export class ChannelService {
   }
 
   async connectSlack(input: ConnectSlackInput) {
-    const authResp = await fetch("https://slack.com/api/auth.test", {
+    const authResp = await proxyFetch("https://slack.com/api/auth.test", {
       headers: { Authorization: `Bearer ${input.botToken}` },
-      signal: timeoutSignal(5000),
+      timeoutMs: 5000,
     });
     const authData = (await authResp.json()) as {
       ok: boolean;
@@ -596,11 +593,11 @@ export class ChannelService {
 
     let appId = input.appId;
     if (!appId && authData.bot_id) {
-      const botInfoResp = await fetch(
+      const botInfoResp = await proxyFetch(
         `https://slack.com/api/bots.info?bot=${authData.bot_id}`,
         {
           headers: { Authorization: `Bearer ${input.botToken}` },
-          signal: timeoutSignal(5000),
+          timeoutMs: 5000,
         },
       );
       const botInfo = (await botInfoResp.json()) as {
@@ -627,9 +624,9 @@ export class ChannelService {
   }
 
   async connectDiscord(input: ConnectDiscordInput) {
-    const userResp = await fetch("https://discord.com/api/v10/users/@me", {
+    const userResp = await proxyFetch("https://discord.com/api/v10/users/@me", {
       headers: { Authorization: `Bot ${input.botToken}` },
-      signal: timeoutSignal(5000),
+      timeoutMs: 5000,
     });
     if (!userResp.ok) {
       throw new Error(
@@ -641,11 +638,11 @@ export class ChannelService {
 
     const userData = (await userResp.json()) as { id?: string };
 
-    const appResp = await fetch(
+    const appResp = await proxyFetch(
       "https://discord.com/api/v10/applications/@me",
       {
         headers: { Authorization: `Bot ${input.botToken}` },
-        signal: timeoutSignal(5000),
+        timeoutMs: 5000,
       },
     );
     if (appResp.ok) {
@@ -775,10 +772,10 @@ export class ChannelService {
   }
 
   async connectTelegram(input: ConnectTelegramInput) {
-    const response = await fetch(
+    const response = await proxyFetch(
       `https://api.telegram.org/bot${encodeURIComponent(input.botToken)}/getMe`,
       {
-        signal: timeoutSignal(5000),
+        timeoutMs: 5000,
       },
     );
     if (!response.ok) {
@@ -1024,7 +1021,7 @@ export class ChannelService {
   }
 
   async connectFeishu(input: ConnectFeishuInput) {
-    const response = await fetch(
+    const response = await proxyFetch(
       "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
       {
         method: "POST",
@@ -1033,7 +1030,7 @@ export class ChannelService {
           app_id: input.appId,
           app_secret: input.appSecret,
         }),
-        signal: timeoutSignal(5000),
+        timeoutMs: 5000,
       },
     );
     const payload = (await response.json()) as { code?: number; msg?: string };
