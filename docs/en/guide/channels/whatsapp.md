@@ -38,6 +38,16 @@ Once the QR code is scanned, the WhatsApp channel will show as connected. Click 
 
 ## FAQ
 
+**Q: The QR code keeps loading and never appears — what should I do?**
+
+WhatsApp requires a stable connection to its servers to generate the QR code. If you're using a proxy tool (such as Clash, Surge, etc.), switch the outbound mode to **Global** and then click "Scan WhatsApp QR" again.
+
+For Clash: click the menu bar icon → Outbound Mode → **Global**.
+
+![Switch Clash to Global mode](/assets/whatsapp/clash-global-mode.webp)
+
+---
+
 **Q: Do I need a public server?**
 
 No. nexu connects via the WhatsApp Web protocol — no public IP or callback URL required.
