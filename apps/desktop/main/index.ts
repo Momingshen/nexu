@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as Sentry from "@sentry/electron/main";
@@ -5,9 +7,12 @@ import {
   BrowserWindow,
   Menu,
   type MenuItemConstructorOptions,
+  Tray,
   app,
   crashReporter,
+  dialog,
   globalShortcut,
+  nativeImage,
   nativeTheme,
   powerMonitor,
   powerSaveBlocker,
@@ -15,22 +20,37 @@ import {
   shell,
 } from "electron";
 import { getOpenclawSkillsDir } from "../shared/desktop-paths";
-import type { DesktopChromeMode, DesktopSurface } from "../shared/host";
+import type {
+  DesktopChromeMode,
+  DesktopSurface,
+  HostDesktopCommand,
+} from "../shared/host";
 import { buildChildProcessProxyEnv } from "../shared/proxy-config";
 import { getDesktopRuntimeConfig } from "../shared/runtime-config";
 import { getDesktopSentryBuildMetadata } from "../shared/sentry-build-metadata";
+import {
+  shouldEnableDesktopUpdateManager,
+  shouldStartDesktopPeriodicUpdateChecks,
+} from "../shared/update-policy";
 import { getDesktopAppRoot, getWorkspaceRoot } from "../shared/workspace-paths";
 import { DesktopDiagnosticsReporter } from "./desktop-diagnostics";
 import { exportDiagnostics } from "./diagnostics-export";
 import {
   registerIpcHandlers,
   setComponentUpdater,
+  setQuitFallback,
+  setQuitHandlerOpts,
   setUpdateManager,
 } from "./ipc";
+import { getDesktopRuntimePlatformAdapter } from "./platforms";
+import { resolveLaunchdPaths } from "./platforms/mac/launchd-paths";
+import type { PrepareForUpdateInstallArgs } from "./platforms/types";
 import { RuntimeOrchestrator } from "./runtime/daemon-supervisor";
 import {
   buildSkillNodePath,
+  checkOpenclawExtractionNeeded,
   createRuntimeUnitManifests,
+  extractOpenclawSidecarAsync,
 } from "./runtime/manifests";
 import {
   type PortAllocation,
@@ -49,15 +69,23 @@ import {
   getDefaultPlistDir,
   getLogDir,
   installLaunchdQuitHandler,
-  isLaunchdBootstrapEnabled,
-  resolveLaunchdPaths,
+  runTeardownAndExit,
   teardownLaunchdServices,
 } from "./services";
-import { ProxyManager } from "./services/proxy-manager";
 import {
-  getLegacyNexuHomeStateDir,
-  migrateOpenclawState,
-} from "./services/state-migration";
+  type DesktopShellPreferences,
+  applyDesktopShellPreferencesOnStartup,
+  getDesktopShellPreferences,
+  setDesktopShellPreferencesRuntimeHandler,
+} from "./services/desktop-shell-preferences";
+import {
+  startDesktopDevInspectServer,
+  stopDesktopDevInspectServer,
+} from "./services/dev-inspect-server";
+import { isLaunchdBootstrapEnabled } from "./services/launchd-bootstrap";
+import { ProxyManager } from "./services/proxy-manager";
+import { flushV8CoverageIfEnabled } from "./services/v8-coverage";
+import { readPendingWindowsUserDataMigration } from "./services/windows-user-data-migration";
 import { SleepGuard, type SleepGuardLogEntry } from "./sleep-guard";
 import { ComponentUpdater } from "./updater/component-updater";
 import { StartupHealthCheck } from "./updater/rollback";
@@ -91,41 +119,95 @@ const baseRuntimeConfig = getDesktopRuntimeConfig(process.env, {
   resourcesPath: app.isPackaged ? electronRoot : undefined,
   useBuildConfig: app.isPackaged,
 });
+const runtimePlatformAdapter =
+  getDesktopRuntimePlatformAdapter(baseRuntimeConfig);
+const useExternalRuntime = baseRuntimeConfig.runtimeMode === "external";
 // In launchd mode, skip port probing — the bootstrap has its own port
 // recovery via runtime-ports.json and handles leftover processes gracefully.
 // Probing here would waste time and the results get overridden by attach anyway.
-const useLaunchdMode = isLaunchdBootstrapEnabled();
-const { allocations: runtimePortAllocations, runtimeConfig } = useLaunchdMode
-  ? {
-      allocations: [] as PortAllocation[],
-      runtimeConfig: baseRuntimeConfig,
-    }
-  : await allocateDesktopRuntimePorts(process.env, baseRuntimeConfig).catch(
-      (error: unknown) => {
-        if (error instanceof PortAllocationError) {
-          throw new Error(
-            `[desktop:ports] ${error.code} purpose=${error.purpose} ` +
-              `preferredPort=${error.preferredPort ?? "n/a"} ${error.message}`,
-          );
-        }
+const useLaunchdMode = !useExternalRuntime && isLaunchdBootstrapEnabled();
+const runtimeLifecycle = runtimePlatformAdapter.lifecycle;
+const { allocations: runtimePortAllocations, runtimeConfig } =
+  useLaunchdMode || useExternalRuntime
+    ? {
+        allocations: [] as PortAllocation[],
+        runtimeConfig: baseRuntimeConfig,
+      }
+    : await allocateDesktopRuntimePorts(process.env, baseRuntimeConfig).catch(
+        (error: unknown) => {
+          if (error instanceof PortAllocationError) {
+            throw new Error(
+              `[desktop:ports] ${error.code} purpose=${error.purpose} ` +
+                `preferredPort=${error.preferredPort ?? "n/a"} ${error.message}`,
+            );
+          }
 
-        throw error;
-      },
-    );
-const orchestrator = new RuntimeOrchestrator(
-  createRuntimeUnitManifests(
-    electronRoot,
-    app.getPath("userData"),
-    app.isPackaged,
+          throw error;
+        },
+      );
+
+const pendingUserDataMigration =
+  app.isPackaged && process.platform === "win32"
+    ? readPendingWindowsUserDataMigration()
+    : null;
+const runtimeRoots = runtimePlatformAdapter.capabilities.resolveRuntimeRoots({
+  app,
+  electronRoot,
+  runtimeConfig,
+});
+if (!useLaunchdMode) {
+  runtimePlatformAdapter.capabilities.stateMigrationPolicy.run({
     runtimeConfig,
-  ),
+    runtimeRoots,
+    isPackaged: app.isPackaged,
+    pendingUserDataMigration,
+    log: (message) => {
+      writeDesktopMainLog({
+        source: "state-migration",
+        stream: "system",
+        kind: "lifecycle",
+        message,
+        logFilePath: resolve(
+          app.getPath("userData"),
+          "logs",
+          "desktop-main.log",
+        ),
+      });
+    },
+  });
+}
+
+const needsSetupExtraction = checkOpenclawExtractionNeeded(
+  electronRoot,
+  app.getPath("userData"),
+  app.isPackaged,
 );
+
+// Set env var BEFORE window creation so the preload can read it for bootstrap data.
+if (needsSetupExtraction) {
+  process.env.NEXU_NEEDS_SETUP_ANIMATION = "1";
+}
+
+const runtimeUnitManifests = createRuntimeUnitManifests(
+  electronRoot,
+  app.getPath("userData"),
+  app.isPackaged,
+  runtimeConfig,
+);
+const orchestrator = new RuntimeOrchestrator(runtimeUnitManifests);
 
 // Disable Chromium's popup blocker.  window.open() inside webviews can lose
 // "transient user activation" after async work (fetch → response → open),
 // causing silent popup blocking.  All popups are already caught by
 // setWindowOpenHandler and redirected to shell.openExternal, so this is safe.
 app.commandLine.appendSwitch("disable-popup-blocking");
+
+// Keep the renderer running at full speed when backgrounded — without
+// these, Chromium pauses the setup-animation video the moment the user
+// switches to another app, making the cold-start hand-off look broken.
+app.commandLine.appendSwitch("disable-background-timer-throttling");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 
 const sentryDsn = runtimeConfig.sentryDsn;
 const embeddedWorkspaceTransparentCss = `
@@ -136,6 +218,15 @@ const embeddedWorkspaceTransparentCss = `
     background-color: transparent !important;
   }
 `;
+const desktopDevInspectHost =
+  process.env.NEXU_DESKTOP_DEV_INSPECT_HOST ?? "127.0.0.1";
+const desktopDevInspectPort = Number.parseInt(
+  process.env.NEXU_DESKTOP_DEV_INSPECT_PORT ?? "5181",
+  10,
+);
+const desktopDevInspectToken =
+  process.env.NEXU_DESKTOP_DEV_INSPECT_TOKEN ?? null;
+const desktopDevServerUrl = process.env.NEXU_DESKTOP_DEV_SERVER_URL ?? null;
 
 function readNativeCrashTestTitle(event: Sentry.Event): string | null {
   const taggedTitle =
@@ -245,10 +336,167 @@ if (sentryDsn) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let residentTray: Tray | null = null;
+let launchdQuitOptsForResidentEntry:
+  | Parameters<typeof installLaunchdQuitHandler>[0]
+  | null = null;
 let diagnosticsReporter: DesktopDiagnosticsReporter | null = null;
+let systemTray: Tray | null = null;
+let pendingMacResidentEntryPreferences: DesktopShellPreferences | null = null;
 
-/** When true, the Develop menu and reload shortcuts are visible in production. */
-let productionDebugMode = false;
+function isZhLocale(): boolean {
+  return app.getLocale().toLowerCase().startsWith("zh");
+}
+
+function getWindowsTrayStrings(): {
+  show: string;
+  hide: string;
+  quit: string;
+} {
+  if (isZhLocale()) {
+    return {
+      show: "显示 Nexu",
+      hide: "隐藏 Nexu",
+      quit: "退出 Nexu",
+    };
+  }
+
+  return {
+    show: "Show Nexu",
+    hide: "Hide Nexu",
+    quit: "Quit Nexu",
+  };
+}
+
+function resolveWindowsTrayIconPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, "tray-icon.ico")
+    : resolve(getDesktopAppRoot(), "build", "icon.ico");
+}
+
+function isForceQuitInProgress(): boolean {
+  return Boolean((app as unknown as Record<string, unknown>).__nexuForceQuit);
+}
+
+function markForceQuitInProgress(): void {
+  (app as unknown as Record<string, unknown>).__nexuForceQuit = true;
+}
+
+/** True if this is the x86_64 build running under Rosetta 2 on Apple Silicon. */
+function isRunningUnderRosetta(): boolean {
+  if (process.platform !== "darwin") return false;
+  if (process.arch !== "x64") return false;
+  try {
+    const out = execFileSync(
+      "/usr/sbin/sysctl",
+      ["-n", "sysctl.proc_translated"],
+      {
+        encoding: "utf8",
+        timeout: 1000,
+      },
+    ).trim();
+    return out === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve the latest arm64 dmg URL from the same update feed (channel) the
+ * user is currently on, so the link mirrors what auto-update would install.
+ * Reads runtimeConfig (not process.env) because packaged builds bake the
+ * channel + feed URL into build-config.json, not live env vars.
+ */
+async function resolveLatestArm64DownloadUrl(): Promise<string> {
+  const R2_BASE = "https://desktop-releases.nexu.io";
+  const channel = runtimeConfig.updates.channel ?? "stable";
+
+  let baseUrl = `${R2_BASE}/${channel}/arm64`;
+  const feedOverride = runtimeConfig.urls.updateFeed;
+  if (feedOverride) {
+    try {
+      const u = new URL(feedOverride);
+      const trimmed = u.pathname.replace(/\/+$/, "");
+      const swapped = trimmed.replace(/\/x64$/, "/arm64");
+      u.pathname = swapped.endsWith("/arm64") ? swapped : `${swapped}/arm64`;
+      u.search = "";
+      u.hash = "";
+      baseUrl = u.toString().replace(/\/+$/, "");
+    } catch {}
+  }
+
+  const ymlUrl = `${baseUrl}/latest-mac.yml`;
+  try {
+    const res = await fetch(ymlUrl, { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      // electron-builder latest-mac.yml lists both .zip (for delta updates)
+      // and .dmg under `files:`. We want the dmg.
+      const match = (await res.text()).match(/url:\s*(\S+\.dmg)/);
+      if (match?.[1]) return `${baseUrl}/${match[1]}`;
+    }
+  } catch {}
+  return ymlUrl;
+}
+
+/**
+ * Block startup with a warning if the Intel build is running on Apple
+ * Silicon under Rosetta 2 — the symptoms (slow startup, high CPU, sidecar
+ * native bindings failing to load) give users no hint of the root cause.
+ * Skipped in dev and skippable via NEXU_SKIP_ARCH_WARNING=1.
+ */
+async function warnIfRunningUnderRosetta(): Promise<void> {
+  if (!app.isPackaged) return;
+  if (process.env.NEXU_SKIP_ARCH_WARNING === "1") return;
+  if (!isRunningUnderRosetta()) return;
+
+  const downloadUrl = await resolveLatestArm64DownloadUrl();
+  const isZh = app.getLocale().toLowerCase().startsWith("zh");
+  const messageBox = isZh
+    ? {
+        title: "检测到架构不匹配",
+        message: "正在 Apple Silicon Mac 上运行 Intel 版 Nexu",
+        detail:
+          "macOS 通过 Rosetta 2 翻译运行 Intel 版本，会导致：\n• 启动比正常慢 3-5 倍\n• 界面卡顿、CPU 占用过高\n• 部分原生模块可能加载失败\n\n请下载 Apple Silicon (arm64) 版本以获得最佳体验。",
+        // Trailing space on the default-button label is a workaround for
+        // electron/electron#40466 — non-standard button labels otherwise do
+        // not get the macOS blue default-button highlight. The "(推荐)"
+        // suffix is a textual fallback so the recommended action is still
+        // obvious if the visual highlight ever stops working.
+        downloadButton: "下载 arm64 版本（推荐） ",
+        continueButton: "继续运行",
+      }
+    : {
+        title: "Architecture mismatch detected",
+        message: "Running the Intel build of Nexu on an Apple Silicon Mac",
+        detail:
+          "macOS is running this build through Rosetta 2 translation, which causes:\n• 3-5x slower startup\n• Laggy UI and high CPU usage\n• Possible native module load failures\n\nPlease download the Apple Silicon (arm64) build for the best experience.",
+        downloadButton: "Download arm64 build (recommended) ",
+        continueButton: "Continue anyway",
+      };
+
+  const result = await dialog.showMessageBox({
+    type: "warning",
+    title: messageBox.title,
+    message: messageBox.message,
+    detail: messageBox.detail,
+    buttons: [messageBox.downloadButton, messageBox.continueButton],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  });
+
+  if (result.response === 0) {
+    void shell.openExternal(downloadUrl);
+    app.exit(0);
+  }
+}
+
+/**
+ * Controls whether the Develop menu is visible. In local dev it starts enabled
+ * so the menu matches today's default behavior, but the same shortcut can
+ * still toggle it for validation. In packaged builds it starts disabled.
+ */
+let productionDebugMode = !app.isPackaged;
 let sleepGuard: SleepGuard | null = null;
 let launchdResult: LaunchdBootstrapResult | null = null;
 let proxyManager: ProxyManager | null = null;
@@ -308,6 +556,7 @@ async function gracefulShutdown(reason: string): Promise<void> {
     sleepGuard?.dispose(reason);
     await diagnosticsReporter?.flushNow().catch(() => undefined);
     flushRuntimeLoggers();
+    flushV8CoverageIfEnabled();
 
     if (launchdResult) {
       await teardownLaunchdServices({
@@ -355,10 +604,29 @@ function sendDesktopCommand(
   });
 }
 
-function triggerUpdateCheck(): void {
-  mainWindow?.webContents.send("host:desktop-command", {
-    type: "desktop:check-for-updates",
-  });
+function sendHostDesktopCommand(command: HostDesktopCommand): void {
+  mainWindow?.webContents.send("host:desktop-command", command);
+}
+
+function showAboutDialog(): void {
+  const version = app.getVersion();
+  const detailLines = [
+    `Version ${version}`,
+    `Electron ${process.versions.electron}`,
+    `Chromium ${process.versions.chrome}`,
+    `Node ${process.versions.node}`,
+  ];
+  const options = {
+    type: "info" as const,
+    title: "About Nexu",
+    message: "Nexu",
+    detail: detailLines.join("\n"),
+    buttons: ["OK"],
+    noLink: true,
+  };
+  void (mainWindow
+    ? dialog.showMessageBox(mainWindow, options)
+    : dialog.showMessageBox(options));
 }
 
 function installApplicationMenu(): void {
@@ -389,23 +657,45 @@ function installApplicationMenu(): void {
         label: "Show OpenClaw In Shell",
         click: () => sendDesktopCommand("openclaw", "full"),
       },
+      { type: "separator" },
+      {
+        label: "Set Test Balance…",
+        click: () =>
+          sendHostDesktopCommand({ type: "develop:open-set-balance" }),
+      },
     ],
   };
 
+  const helpSubmenu: MenuItemConstructorOptions[] = [
+    {
+      label: "Export Diagnostics…",
+      click: () => {
+        void exportDiagnostics({
+          orchestrator,
+          runtimeConfig,
+          source: "help-menu",
+        }).catch(() => undefined);
+      },
+    },
+  ];
+
+  // On macOS About/Check-for-Updates live in the application menu by
+  // platform convention. On Windows/Linux there is no app menu, so surface
+  // them in Help instead (issue nexu-io/nexu#784).
+  if (process.platform !== "darwin") {
+    helpSubmenu.push(
+      { type: "separator" },
+      {
+        id: "about-nexu",
+        label: `About Nexu (v${app.getVersion()})`,
+        click: () => showAboutDialog(),
+      },
+    );
+  }
+
   const helpMenu: MenuItemConstructorOptions = {
     role: "help",
-    submenu: [
-      {
-        label: "Export Diagnostics…",
-        click: () => {
-          void exportDiagnostics({
-            orchestrator,
-            runtimeConfig,
-            source: "help-menu",
-          }).catch(() => undefined);
-        },
-      },
-    ],
+    submenu: helpSubmenu,
   };
 
   const template: MenuItemConstructorOptions[] = [
@@ -415,13 +705,6 @@ function installApplicationMenu(): void {
             role: "appMenu",
             submenu: [
               { role: "about" },
-              {
-                id: "check-for-updates",
-                label: "Check for Updates…",
-                enabled:
-                  app.isPackaged && runtimeConfig.updates.autoUpdateEnabled,
-                click: () => triggerUpdateCheck(),
-              },
               { type: "separator" },
               { role: "services" },
               { type: "separator" },
@@ -441,8 +724,8 @@ function installApplicationMenu(): void {
       submenu: [
         // Reload shortcuts are dev-only — in production they expose
         // internal "starting local service" screens (see #399).
-        // They can be unlocked at runtime via Cmd+Shift+Alt+D.
-        ...(!app.isPackaged || productionDebugMode
+        // They can be unlocked at runtime via Cmd/Ctrl+Shift+Alt+D.
+        ...(productionDebugMode
           ? ([
               { role: "reload" },
               { role: "forceReload" },
@@ -458,7 +741,7 @@ function installApplicationMenu(): void {
         { role: "togglefullscreen" },
       ],
     },
-    ...(!app.isPackaged || productionDebugMode ? [developMenu] : []),
+    ...(productionDebugMode ? [developMenu] : []),
     { role: "windowMenu" },
     helpMenu,
   ];
@@ -601,28 +884,22 @@ async function runLaunchdColdStart(): Promise<void> {
     /^~/,
     process.env.HOME ?? "",
   );
+  const runtimeRoots = runtimePlatformAdapter.capabilities.resolveRuntimeRoots({
+    app,
+    electronRoot,
+    runtimeConfig,
+  });
 
-  // In packaged mode, keep openclaw state under Electron userData (matches v0.1.5).
-  // In dev mode, derive from nexuHome for repo-local isolation.
-  const openclawRuntimeRoot = isDev
-    ? resolve(nexuHome, "runtime", "openclaw")
-    : resolve(app.getPath("userData"), "runtime", "openclaw");
-  const openclawStateDir = resolve(openclawRuntimeRoot, "state");
-  const openclawConfigPath = resolve(openclawStateDir, "openclaw.json");
+  const { openclawRuntimeRoot, openclawStateDir, openclawConfigPath } =
+    runtimeRoots;
 
-  // Migrate any state created under ~/.nexu during v0.1.6 back to userData path
-  if (!isDev) {
-    const legacyStateDir = getLegacyNexuHomeStateDir(
-      runtimeConfig.paths.nexuHome,
-    );
-    if (legacyStateDir !== openclawStateDir) {
-      migrateOpenclawState({
-        targetStateDir: openclawStateDir,
-        sourceStateDir: legacyStateDir,
-        log: (msg) => logColdStart(`state-migration: ${msg}`),
-      });
-    }
-  }
+  runtimePlatformAdapter.capabilities.stateMigrationPolicy.run({
+    runtimeConfig,
+    runtimeRoots,
+    isPackaged: app.isPackaged,
+    pendingUserDataMigration: null,
+    log: (message) => logColdStart(`state-migration: ${message}`),
+  });
 
   // In dev mode, serve web app from apps/web/dist
   // In packaged mode, serve from resources/web
@@ -670,6 +947,26 @@ async function runLaunchdColdStart(): Promise<void> {
     skillNodePath,
     openclawTmpDir,
     proxyEnv,
+    posthogApiKey:
+      process.env.POSTHOG_API_KEY ?? runtimeConfig.posthogApiKey ?? undefined,
+    posthogHost:
+      process.env.POSTHOG_HOST ?? runtimeConfig.posthogHost ?? undefined,
+    langfusePublicKey:
+      process.env.LANGFUSE_PUBLIC_KEY ??
+      runtimeConfig.langfusePublicKey ??
+      undefined,
+    langfuseSecretKey:
+      process.env.LANGFUSE_SECRET_KEY ??
+      runtimeConfig.langfuseSecretKey ??
+      undefined,
+    langfuseBaseUrl:
+      process.env.LANGFUSE_BASE_URL ??
+      runtimeConfig.langfuseBaseUrl ??
+      undefined,
+    log: (message: string) => logColdStart(message),
+    nodeV8Coverage: process.env.NODE_V8_COVERAGE,
+    desktopE2ECoverage: process.env.NEXU_DESKTOP_E2E_COVERAGE,
+    desktopE2ECoverageRunId: process.env.NEXU_DESKTOP_E2E_COVERAGE_RUN_ID,
     appVersion: app.getVersion(),
     userDataPath: app.getPath("userData"),
     buildSource:
@@ -739,18 +1036,268 @@ function focusMainWindow(): void {
   mainWindow.focus();
 }
 
-app.on("second-instance", () => {
+function shouldUseResidentEntry(preferences: DesktopShellPreferences): boolean {
+  if (process.platform === "darwin") {
+    return true;
+  }
+
+  return !preferences.showInDock;
+}
+
+function resolveTrayIconPath(): string | null {
+  const candidate =
+    process.platform === "darwin"
+      ? app.isPackaged
+        ? join(process.resourcesPath, "tray-icon-mac.png")
+        : resolve(getDesktopAppRoot(), "build", "tray-icon-mac.png")
+      : resolve(
+          app.isPackaged ? process.resourcesPath : getDesktopAppRoot(),
+          "build",
+          process.platform === "win32" ? "icon.ico" : "icon.png",
+        );
+
+  return existsSync(candidate) ? candidate : null;
+}
+
+function hideMainWindowToBackground(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  mainWindow.hide();
+}
+
+function hideMainWindowToTray(): void {
+  hideMainWindowToBackground();
+}
+
+function updateSystemTrayMenu(): void {
+  if (!systemTray) {
+    return;
+  }
+
+  const trayStrings = getWindowsTrayStrings();
+
+  const isVisible = Boolean(
+    mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible(),
+  );
+
+  systemTray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: isVisible ? trayStrings.hide : trayStrings.show,
+        click: () => {
+          if (isVisible) {
+            hideMainWindowToBackground();
+            return;
+          }
+
+          showMainWindowFromResidentEntry();
+        },
+      },
+      { type: "separator" },
+      {
+        label: trayStrings.quit,
+        click: () => {
+          markForceQuitInProgress();
+          app.quit();
+        },
+      },
+    ]),
+  );
+}
+
+function showSystemTrayMenu(): void {
+  if (!systemTray) {
+    return;
+  }
+
+  updateSystemTrayMenu();
+  systemTray.popUpContextMenu();
+}
+
+function showMainWindowFromResidentEntry(): void {
+  const preferences = getDesktopShellPreferences();
+
+  if (process.platform === "darwin" && preferences.showInDock) {
+    void app.dock?.show();
+  }
+
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createMainWindow();
+    return;
+  }
+
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+
   focusMainWindow();
+}
+
+function destroyResidentTray(): void {
+  residentTray?.destroy();
+  residentTray = null;
+}
+
+function showResidentTrayMenu(): void {
+  if (!residentTray) {
+    return;
+  }
+
+  residentTray.popUpContextMenu();
+}
+
+function ensureResidentTray(): void {
+  if (residentTray) {
+    return;
+  }
+
+  const trayIconPath = resolveTrayIconPath();
+  if (!trayIconPath) {
+    return;
+  }
+
+  let trayIcon = nativeImage.createFromPath(trayIconPath);
+  if (trayIcon.isEmpty()) {
+    return;
+  }
+
+  if (process.platform === "darwin") {
+    trayIcon = trayIcon.resize({ height: 18 });
+    trayIcon.setTemplateImage(true);
+  }
+
+  const tray = new Tray(trayIcon);
+  residentTray = tray;
+  tray.setToolTip("nexu");
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "Open nexu",
+        click: () => {
+          showMainWindowFromResidentEntry();
+        },
+      },
+      {
+        label: "Quit",
+        click: () => {
+          if (app.isPackaged && launchdQuitOptsForResidentEntry) {
+            void runTeardownAndExit(
+              launchdQuitOptsForResidentEntry,
+              "tray-quit",
+            );
+            return;
+          }
+
+          markForceQuitInProgress();
+          app.quit();
+        },
+      },
+    ]),
+  );
+  tray.on("click", () => {
+    showResidentTrayMenu();
+  });
+  tray.on("right-click", () => {
+    showResidentTrayMenu();
+  });
+}
+
+async function ensureWindowsTray(): Promise<void> {
+  if (process.platform !== "win32" || !app.isPackaged || systemTray) {
+    return;
+  }
+
+  const trayIconPath = resolveWindowsTrayIconPath();
+  const trayIcon = nativeImage.createFromPath(trayIconPath);
+
+  if (!trayIcon || trayIcon.isEmpty()) {
+    return;
+  }
+
+  systemTray = new Tray(trayIcon);
+  systemTray.setToolTip("Nexu");
+  updateSystemTrayMenu();
+
+  systemTray.on("click", () => {
+    showSystemTrayMenu();
+  });
+
+  systemTray.on("right-click", () => {
+    showSystemTrayMenu();
+  });
+}
+
+function applyResidentEntryPreferences(
+  preferences: DesktopShellPreferences,
+): void {
+  if (process.platform === "darwin") {
+    const window = mainWindow;
+    if (window && !window.isDestroyed() && window.isFullScreen()) {
+      pendingMacResidentEntryPreferences = preferences;
+      window.setFullScreen(false);
+      return;
+    }
+
+    pendingMacResidentEntryPreferences = null;
+    app.setActivationPolicy(preferences.showInDock ? "regular" : "accessory");
+    if (preferences.showInDock) {
+      void app.dock?.show();
+    } else {
+      app.dock?.hide();
+    }
+  }
+
+  if (process.platform === "win32" && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setSkipTaskbar(!preferences.showInDock);
+  }
+
+  if (process.platform !== "win32" && shouldUseResidentEntry(preferences)) {
+    ensureResidentTray();
+  } else {
+    destroyResidentTray();
+  }
+}
+
+function shouldHideOnWindowClose(): boolean {
+  if (!app.isPackaged) {
+    return false;
+  }
+
+  if (process.platform === "darwin") {
+    return true;
+  }
+
+  if (process.platform === "win32") {
+    return systemTray !== null;
+  }
+
+  return shouldUseResidentEntry(getDesktopShellPreferences());
+}
+app.on("second-instance", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createMainWindow();
+    return;
+  }
+
+  showMainWindowFromResidentEntry();
+  focusMainWindow();
+});
+
+app.on("before-quit", () => {
+  void stopDesktopDevInspectServer();
 });
 
 function createMainWindow(): BrowserWindow {
   logLaunchTimeline("main window creation requested");
   const isMacOS = process.platform === "darwin";
+  const shellPreferences = getDesktopShellPreferences();
   const window = new BrowserWindow({
-    width: 1400,
-    height: 920,
-    minWidth: 1120,
-    minHeight: 760,
+    width: 1280,
+    height: 720,
+    minWidth: needsSetupExtraction ? 1280 : 1120,
+    minHeight: 720,
     backgroundColor: isMacOS ? "#00000000" : "#0B1020",
     title: "nexu",
     titleBarStyle: "hiddenInset",
@@ -769,8 +1316,14 @@ function createMainWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: false,
       webviewTag: true,
+      // Window-level backup for the disable-renderer-backgrounding flag.
+      backgroundThrottling: false,
     },
   });
+
+  if (process.platform === "win32") {
+    window.setSkipTaskbar(!shellPreferences.showInDock);
+  }
 
   // Disable sandbox for webviews so preload scripts have access to Node.js APIs
   // (needed for contextBridge/ipcRenderer in ESM-built preloads)
@@ -875,28 +1428,107 @@ function createMainWindow(): BrowserWindow {
       detail: window.webContents.getURL(),
     });
     logLaunchTimeline("main window ready-to-show");
-    if (isMacOS) {
+    if (isMacOS && !needsSetupExtraction) {
+      // Only apply vibrancy after ready-to-show when NOT in setup mode.
+      // During setup, vibrancy is applied after the animation finishes
+      // to avoid the transparent background showing through the video.
       window.setBackgroundColor("#00000000");
       window.setVibrancy("sidebar");
     }
-    window.show();
-    focusMainWindow();
+    if (!window.isVisible()) {
+      window.show();
+      focusMainWindow();
+    }
   });
 
   window.on("closed", () => {
     if (mainWindow === window) {
       mainWindow = null;
     }
+
+    updateSystemTrayMenu();
   });
 
-  void window.loadFile(resolve(__dirname, "../../dist/index.html"));
+  window.on("close", (event) => {
+    if (process.platform !== "win32" || !app.isPackaged) {
+      return;
+    }
+
+    if (!systemTray) {
+      return;
+    }
+
+    if (isForceQuitInProgress()) {
+      return;
+    }
+
+    event.preventDefault();
+    hideMainWindowToTray();
+  });
+
+  window.on("show", () => {
+    updateSystemTrayMenu();
+  });
+
+  window.on("hide", () => {
+    updateSystemTrayMenu();
+  });
+
+  window.on("leave-full-screen", () => {
+    if (mainWindow !== window || !pendingMacResidentEntryPreferences) {
+      return;
+    }
+
+    const pendingPreferences = pendingMacResidentEntryPreferences;
+    pendingMacResidentEntryPreferences = null;
+    applyResidentEntryPreferences(pendingPreferences);
+  });
+
+  window.on("close", (event) => {
+    if ((app as unknown as Record<string, unknown>).__nexuForceQuit) {
+      return;
+    }
+
+    if (!launchdResult && shouldHideOnWindowClose()) {
+      event.preventDefault();
+      hideMainWindowToBackground();
+    }
+  });
+
+  // During first install / post-update, show the window IMMEDIATELY with a
+  // white background — before loadFile, before React, before anything.
+  // This eliminates the 10-20s blank screen while the Electron main process
+  // is doing sidecar extraction / launchd bootstrap in the background.
+  // The white background matches the animation overlay seamlessly.
+  if (needsSetupExtraction) {
+    logLaunchTimeline("setup animation: showing window immediately");
+    window.setBackgroundColor("#ffffff");
+    window.show();
+    focusMainWindow();
+  }
+
+  const desktopRendererEntryPath = resolve(__dirname, "../../dist/index.html");
+  const desktopRendererTarget =
+    !app.isPackaged && desktopDevServerUrl
+      ? desktopDevServerUrl
+      : desktopRendererEntryPath;
+
+  if (!app.isPackaged && desktopDevServerUrl) {
+    void window.loadURL(desktopDevServerUrl);
+  } else {
+    void window.loadFile(desktopRendererEntryPath);
+  }
   diagnosticsReporter?.recordStartupProbe({
     source: "main",
     stage: "main:window-load-dispatched",
     status: "ok",
-    detail: resolve(__dirname, "../../dist/index.html"),
+    detail: desktopRendererTarget,
   });
-  logLaunchTimeline("main window loadFile dispatched");
+  logLaunchTimeline(
+    !app.isPackaged && desktopDevServerUrl
+      ? "main window loadURL dispatched"
+      : "main window loadFile dispatched",
+  );
   mainWindow = window;
   return window;
 }
@@ -915,21 +1547,34 @@ app.on("web-contents-created", (_event, contents) => {
     return { action: "deny" };
   });
 
-  // In production, block reload shortcuts (Cmd+R, Ctrl+R, Ctrl+Shift+R, F5)
-  // at the webContents level to prevent exposing internal startup screens (#399).
-  // Unlockable at runtime via Cmd+Shift+Alt+D (toggles productionDebugMode).
-  if (app.isPackaged) {
-    contents.on("before-input-event", (event, input) => {
-      if (productionDebugMode) return;
-      if (input.type !== "keyDown") return;
-      const isReload =
-        (input.key.toLowerCase() === "r" && (input.meta || input.control)) ||
-        input.key === "F5";
-      if (isReload) {
-        event.preventDefault();
-      }
-    });
-  }
+  // In packaged builds, block reload shortcuts (Cmd+R, Ctrl+R, Ctrl+Shift+R,
+  // F5) at the webContents level to prevent exposing internal startup screens
+  // (#399). The same focused-window event path also toggles the Develop menu in
+  // dev so the shortcut can be validated without a packaged build.
+  contents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
+    // Toggle debug mode: Cmd+Shift+Alt+D (mac) / Ctrl+Shift+Alt+D (win/linux).
+    // Handled here in addition to globalShortcut so it works on Windows even
+    // when system-level registration is blocked by other software.
+    if (
+      input.key.toLowerCase() === "d" &&
+      input.shift &&
+      input.alt &&
+      (input.meta || input.control)
+    ) {
+      event.preventDefault();
+      productionDebugMode = !productionDebugMode;
+      installApplicationMenu();
+      return;
+    }
+    if (!app.isPackaged || productionDebugMode) return;
+    const isReload =
+      (input.key.toLowerCase() === "r" && (input.meta || input.control)) ||
+      input.key === "F5";
+    if (isReload) {
+      event.preventDefault();
+    }
+  });
 
   if (contentType !== "webview") {
     return;
@@ -1019,18 +1664,19 @@ logLaunchTimeline("electron main module evaluated");
 
 app.whenReady().then(async () => {
   logLaunchTimeline("app.whenReady resolved");
+  // Short-circuit before any heavy startup if running under Rosetta.
+  await warnIfRunningUnderRosetta();
   proxyManager = new ProxyManager(session.defaultSession);
   await proxyManager.applyPolicy(runtimeConfig.proxy);
   installApplicationMenu();
 
-  // Hidden shortcut to toggle debug mode in production (Develop menu + reload).
-  // Harmless in dev since those items are always visible.
-  if (app.isPackaged) {
-    globalShortcut.register("CommandOrControl+Shift+Alt+D", () => {
-      productionDebugMode = !productionDebugMode;
-      installApplicationMenu();
-    });
-  }
+  // Hidden shortcut to toggle the Develop menu and packaged-only reload items.
+  // Registered in both dev and packaged builds so the shortcut itself can be
+  // validated locally, while before-input-event remains the Windows fallback.
+  globalShortcut.register("CommandOrControl+Shift+Alt+D", () => {
+    productionDebugMode = !productionDebugMode;
+    installApplicationMenu();
+  });
   diagnosticsReporter = new DesktopDiagnosticsReporter(orchestrator);
   await refreshProxyDiagnostics();
   diagnosticsReporter.recordStartupProbe({
@@ -1039,11 +1685,45 @@ app.whenReady().then(async () => {
     status: "ok",
     detail: app.getVersion(),
   });
+  if (
+    !app.isPackaged &&
+    desktopDevInspectToken &&
+    Number.isInteger(desktopDevInspectPort) &&
+    desktopDevInspectPort > 0
+  ) {
+    try {
+      await startDesktopDevInspectServer({
+        host: desktopDevInspectHost,
+        port: desktopDevInspectPort,
+        token: desktopDevInspectToken,
+      });
+    } catch (error) {
+      writeDesktopMainLog({
+        source: "dev-inspect",
+        stream: "stderr",
+        kind: "app",
+        message: `desktop dev inspect server failed to start host=${desktopDevInspectHost} port=${desktopDevInspectPort} error=${error instanceof Error ? error.message : String(error)}`,
+        logFilePath: null,
+      });
+    }
+  }
+  setDesktopShellPreferencesRuntimeHandler((preferences) => {
+    applyResidentEntryPreferences(preferences);
+  });
+  applyDesktopShellPreferencesOnStartup();
   registerIpcHandlers(
     orchestrator,
     runtimeConfig,
     diagnosticsReporter,
     coldStartReady,
+  );
+  // Provide orchestrator-mode quit fallback for app:quit IPC when launchd
+  // quit handler is not available (e.g. CI, orchestrator mode).
+  setQuitFallback(() =>
+    gracefulShutdown("ipc-quit").finally(() => {
+      (app as unknown as Record<string, unknown>).__nexuForceQuit = true;
+      app.exit(0);
+    }),
   );
   const unsubscribeDiagnostics = diagnosticsReporter.start();
   sleepGuard = new SleepGuard({
@@ -1055,6 +1735,7 @@ app.whenReady().then(async () => {
     },
   });
   const win = createMainWindow();
+  await ensureWindowsTray();
   sleepGuard.start("desktop-runtime-active");
 
   void (async () => {
@@ -1068,11 +1749,35 @@ app.whenReady().then(async () => {
     }
 
     try {
+      if (needsSetupExtraction) {
+        logColdStart("starting async openclaw sidecar extraction");
+        diagnosticsReporter?.markColdStartRunning(
+          "extracting openclaw sidecar",
+        );
+        await extractOpenclawSidecarAsync(
+          electronRoot,
+          app.getPath("userData"),
+        );
+        logColdStart("openclaw sidecar extraction complete");
+      }
+
       logColdStart(
-        `bootstrap mode: ${useLaunchdMode ? "launchd" : "orchestrator"}`,
+        `bootstrap mode: ${useExternalRuntime ? "external" : useLaunchdMode ? "launchd" : "orchestrator"}`,
       );
 
-      if (useLaunchdMode) {
+      if (useExternalRuntime) {
+        await runtimeLifecycle.coldStartOrAttach({
+          app,
+          electronRoot,
+          runtimeConfig,
+          orchestrator,
+          diagnosticsReporter,
+          logColdStart,
+          logStartupStep: logLaunchTimeline,
+          rotateDesktopLogSession,
+          waitForControllerReadiness,
+        });
+      } else if (useLaunchdMode) {
         await runLaunchdColdStart();
       } else {
         await runDesktopColdStart();
@@ -1101,7 +1806,7 @@ app.whenReady().then(async () => {
     // Install launchd quit handler regardless of cold-start success/failure
     // so services can always be stopped cleanly on quit.
     if (launchdResult) {
-      installLaunchdQuitHandler({
+      const quitOpts = {
         launchd: launchdResult.launchd,
         labels: launchdResult.labels,
         webServer: launchdResult.webServer,
@@ -1110,14 +1815,33 @@ app.whenReady().then(async () => {
           sleepGuard?.dispose("launchd-quit");
           await diagnosticsReporter?.flushNow().catch(() => undefined);
           flushRuntimeLoggers();
+          flushV8CoverageIfEnabled();
         },
-      });
+      };
+      installLaunchdQuitHandler(quitOpts);
+      setQuitHandlerOpts(quitOpts);
+      launchdQuitOptsForResidentEntry = quitOpts;
     }
 
-    if (app.isPackaged && runtimeConfig.updates.autoUpdateEnabled) {
+    const shouldEnableUpdates =
+      app.isPackaged &&
+      runtimeConfig.updates.autoUpdateEnabled &&
+      shouldEnableDesktopUpdateManager({
+        buildSource: runtimeConfig.buildInfo.source,
+        updateFeed: runtimeConfig.urls.updateFeed,
+      });
+
+    if (shouldEnableUpdates) {
       const updateMgr = new UpdateManager(win, orchestrator, {
         channel: runtimeConfig.updates.channel,
         feedUrl: runtimeConfig.urls.updateFeed,
+        autoDownload: true,
+        initialDelayMs: process.platform === "win32" ? 30_000 : 0,
+        prepareForUpdateInstall: runtimeLifecycle.prepareForUpdateInstall
+          ? async (args: PrepareForUpdateInstallArgs) => {
+              await runtimeLifecycle.prepareForUpdateInstall?.(args);
+            }
+          : undefined,
         launchd: launchdResult
           ? {
               manager: launchdResult.launchd,
@@ -1127,7 +1851,15 @@ app.whenReady().then(async () => {
           : undefined,
       });
       setUpdateManager(updateMgr);
-      updateMgr.startPeriodicCheck();
+
+      if (
+        shouldStartDesktopPeriodicUpdateChecks({
+          buildSource: runtimeConfig.buildInfo.source,
+          updateFeed: runtimeConfig.urls.updateFeed,
+        })
+      ) {
+        updateMgr.startPeriodicCheck();
+      }
     } else {
       setUpdateManager(null);
     }
@@ -1152,6 +1884,9 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
+    if (shouldUseResidentEntry(getDesktopShellPreferences())) {
+      return;
+    }
     app.quit();
   }
 });
@@ -1188,6 +1923,7 @@ const beforeQuitHandler = (event: Electron.Event) => {
   // Legacy orchestrator mode: run unified shutdown, then quit.
   event.preventDefault();
   void gracefulShutdown("before-quit").finally(() => {
+    markForceQuitInProgress();
     // P1-2: Remove only this specific handler (not all before-quit listeners).
     app.removeListener("before-quit", beforeQuitHandler);
     app.quit();
@@ -1195,3 +1931,7 @@ const beforeQuitHandler = (event: Electron.Event) => {
 };
 
 app.on("before-quit", beforeQuitHandler);
+app.on("before-quit", () => {
+  systemTray?.destroy();
+  systemTray = null;
+});

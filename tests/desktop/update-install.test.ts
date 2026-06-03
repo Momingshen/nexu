@@ -140,6 +140,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
       launchd: launchdCtx,
     });
 
@@ -185,6 +186,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
       launchd: launchdCtx,
     });
 
@@ -207,6 +209,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
     });
 
     await mgr.quitAndInstall();
@@ -238,6 +241,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
     });
 
     await mgr.quitAndInstall();
@@ -259,6 +263,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
     });
 
     await mgr.quitAndInstall();
@@ -267,7 +272,68 @@ describe("UpdateManager.quitAndInstall", () => {
   });
 
   // -----------------------------------------------------------------------
-  // 5b. Critical path check still runs even when processes are already clean
+  // 5a. Verification sweeps use the optimized timeout/interval values
+  // -----------------------------------------------------------------------
+  it("uses 8000/200 for the first verification sweep", async () => {
+    const orchestrator = createMockOrchestrator();
+    const win = createMockWindow();
+
+    const { UpdateManager } = await import(
+      "../../apps/desktop/main/updater/update-manager"
+    );
+
+    const mgr = new UpdateManager(win as never, orchestrator as never, {
+      channel: "stable",
+      feedUrl: null,
+      platform: "darwin",
+    });
+
+    await mgr.quitAndInstall();
+
+    expect(mockEnsureDead).toHaveBeenCalledTimes(1);
+    expect(mockEnsureDead).toHaveBeenCalledWith({
+      timeoutMs: 8_000,
+      intervalMs: 200,
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // 5b. Survivors trigger a second 5000/200 sweep
+  // -----------------------------------------------------------------------
+  it("uses 5000/200 for the second verification sweep when survivors remain", async () => {
+    mockEnsureDead
+      .mockResolvedValueOnce({ clean: false, remainingPids: [123] })
+      .mockResolvedValueOnce({ clean: true, remainingPids: [] });
+
+    const orchestrator = createMockOrchestrator();
+    const win = createMockWindow();
+
+    const { UpdateManager } = await import(
+      "../../apps/desktop/main/updater/update-manager"
+    );
+
+    const mgr = new UpdateManager(win as never, orchestrator as never, {
+      channel: "stable",
+      feedUrl: null,
+      platform: "darwin",
+    });
+
+    await mgr.quitAndInstall();
+
+    expect(mockEnsureDead).toHaveBeenCalledTimes(2);
+    expect(mockEnsureDead).toHaveBeenNthCalledWith(1, {
+      timeoutMs: 8_000,
+      intervalMs: 200,
+    });
+    expect(mockEnsureDead).toHaveBeenNthCalledWith(2, {
+      timeoutMs: 5_000,
+      intervalMs: 200,
+    });
+    expect(mockAutoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
+  });
+
+  // -----------------------------------------------------------------------
+  // 5c. Critical path check still runs even when processes are already clean
   // -----------------------------------------------------------------------
   it("checks critical paths before install even when no processes remain", async () => {
     const orchestrator = createMockOrchestrator();
@@ -280,6 +346,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
     });
 
     await mgr.quitAndInstall();
@@ -290,7 +357,7 @@ describe("UpdateManager.quitAndInstall", () => {
   });
 
   // -----------------------------------------------------------------------
-  // 5c. Clean processes but locked critical paths still abort install
+  // 5d. Clean processes but locked critical paths still abort install
   // -----------------------------------------------------------------------
   it("aborts install when critical paths stay locked even if process verification is clean", async () => {
     mockCheckPaths.mockResolvedValueOnce({
@@ -308,6 +375,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
     });
 
     await mgr.quitAndInstall();
@@ -333,6 +401,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
       launchd: launchdCtx,
     });
 
@@ -365,6 +434,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
       launchd: launchdCtx,
     });
 
@@ -393,6 +463,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
     });
 
     // Should NOT throw — dispose error is caught internally
@@ -417,6 +488,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
     });
 
     await mgr.quitAndInstall();
@@ -453,6 +525,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
     });
 
     await mgr.quitAndInstall();
@@ -481,6 +554,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
     });
 
     await mgr.quitAndInstall();
@@ -512,6 +586,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
     });
 
     await mgr.quitAndInstall();
@@ -538,6 +613,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
       launchd: launchdCtx,
     });
 
@@ -574,6 +650,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
       launchd: launchdCtx,
       initialDelayMs: 100,
     });
@@ -612,6 +689,7 @@ describe("UpdateManager.quitAndInstall", () => {
     const mgr = new UpdateManager(win as never, orchestrator as never, {
       channel: "stable",
       feedUrl: null,
+      platform: "darwin",
     });
 
     // ensureNexuProcessesDead throwing should propagate — it's the verification gate

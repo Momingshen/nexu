@@ -55,6 +55,43 @@ export interface PlistEnv {
   openclawTmpDir: string;
   /** Normalized proxy env propagated to child processes */
   proxyEnv: Record<string, string>;
+  /** PostHog API key for controller analytics */
+  posthogApiKey?: string;
+  /** PostHog host for controller analytics */
+  posthogHost?: string;
+  /** Langfuse public key for controller/openclaw tracing */
+  langfusePublicKey?: string;
+  /** Langfuse secret key for controller/openclaw tracing */
+  langfuseSecretKey?: string;
+  /** Langfuse base URL for controller/openclaw tracing */
+  langfuseBaseUrl?: string;
+  /** Optional Node V8 coverage output directory */
+  nodeV8Coverage?: string;
+  /** Optional desktop E2E coverage mode switch */
+  desktopE2ECoverage?: string;
+  /** Optional desktop E2E coverage run identifier */
+  desktopE2ECoverageRunId?: string;
+}
+
+function renderCoverageEnvEntries(env: PlistEnv): string {
+  const optionalCoverageEntries = [
+    ["NODE_V8_COVERAGE", env.nodeV8Coverage],
+    ["NEXU_DESKTOP_E2E_COVERAGE", env.desktopE2ECoverage],
+    ["NEXU_DESKTOP_E2E_COVERAGE_RUN_ID", env.desktopE2ECoverageRunId],
+  ] as const;
+
+  return optionalCoverageEntries
+    .flatMap(([key, value]) => {
+      if (!value) {
+        return [];
+      }
+
+      return [
+        `\n        <key>${key}</key>`,
+        `\n        <string>${escapeXml(value)}</string>`,
+      ];
+    })
+    .join("");
 }
 
 function renderProxyEnvEntries(proxyEnv: Record<string, string>): string {
@@ -158,7 +195,7 @@ function generateControllerPlist(label: string, env: PlistEnv): string {
         <key>TMPDIR</key>
         <string>${escapeXml(env.openclawTmpDir)}</string>${renderProxyEnvEntries(
           env.proxyEnv,
-        )}${
+        )}${renderCoverageEnvEntries(env)}${
           env.nexuHome
             ? `
         <key>NEXU_HOME</key>
@@ -175,6 +212,36 @@ function generateControllerPlist(label: string, env: PlistEnv): string {
             ? `
         <key>PATH</key>
         <string>${escapeXml(env.systemPath)}</string>`
+            : ""
+        }${
+          env.posthogApiKey
+            ? `
+        <key>POSTHOG_API_KEY</key>
+        <string>${escapeXml(env.posthogApiKey)}</string>`
+            : ""
+        }${
+          env.posthogHost
+            ? `
+        <key>POSTHOG_HOST</key>
+        <string>${escapeXml(env.posthogHost)}</string>`
+            : ""
+        }${
+          env.langfusePublicKey
+            ? `
+        <key>LANGFUSE_PUBLIC_KEY</key>
+        <string>${escapeXml(env.langfusePublicKey)}</string>`
+            : ""
+        }${
+          env.langfuseSecretKey
+            ? `
+        <key>LANGFUSE_SECRET_KEY</key>
+        <string>${escapeXml(env.langfuseSecretKey)}</string>`
+            : ""
+        }${
+          env.langfuseBaseUrl
+            ? `
+        <key>LANGFUSE_BASE_URL</key>
+        <string>${escapeXml(env.langfuseBaseUrl)}</string>`
             : ""
         }
         <key>NODE_ENV</key>
@@ -229,7 +296,10 @@ function generateOpenclawPlist(label: string, env: PlistEnv): string {
         <string>${escapeXml(env.nodePath)}</string>
         <string>${escapeXml(env.openclawPath)}</string>
         <string>gateway</string>
-        <string>run</string>${authArgs}
+        <string>run</string>
+        <string>--port</string>
+        <string>${env.openclawPort}</string>
+        <string>--allow-unconfigured</string>${authArgs}
     </array>
 
     <key>WorkingDirectory</key>
@@ -250,11 +320,35 @@ function generateOpenclawPlist(label: string, env: PlistEnv): string {
         <key>OPENCLAW_SERVICE_MARKER</key>
         <string>launchd</string>
         <key>OPENCLAW_IMAGE_BACKEND</key>
-        <string>sips</string>
+        <string>sips</string>${
+          env.gatewayToken
+            ? `
+        <key>OPENCLAW_GATEWAY_TOKEN</key>
+        <string>${escapeXml(env.gatewayToken)}</string>`
+            : ""
+        }${
+          env.langfusePublicKey
+            ? `
+        <key>LANGFUSE_PUBLIC_KEY</key>
+        <string>${escapeXml(env.langfusePublicKey)}</string>`
+            : ""
+        }${
+          env.langfuseSecretKey
+            ? `
+        <key>LANGFUSE_SECRET_KEY</key>
+        <string>${escapeXml(env.langfuseSecretKey)}</string>`
+            : ""
+        }${
+          env.langfuseBaseUrl
+            ? `
+        <key>LANGFUSE_BASE_URL</key>
+        <string>${escapeXml(env.langfuseBaseUrl)}</string>`
+            : ""
+        }
         <key>HOME</key>
         <string>${escapeXml(os.homedir())}</string>${renderProxyEnvEntries(
           env.proxyEnv,
-        )}${
+        )}${renderCoverageEnvEntries(env)}${
           env.systemPath
             ? `
         <key>PATH</key>

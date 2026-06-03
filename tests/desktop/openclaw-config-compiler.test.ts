@@ -71,6 +71,10 @@ function createBaseConfig(): NexuConfig {
       },
       defaultModelId: "anthropic/claude-sonnet-4",
     },
+    models: {
+      mode: "merge",
+      providers: {},
+    },
     providers: [],
     integrations: [],
     channels: [],
@@ -88,6 +92,9 @@ describe("compileOpenClawConfig", () => {
     expect(compiled.plugins?.entries?.["openclaw-weixin"]).toEqual({
       enabled: true,
     });
+    // Prewarm allowlist: prevents first-connect SIGUSR1 + drain window.
+    expect(compiled.plugins?.allow).toContain("openclaw-weixin");
+    expect(compiled.plugins?.allow).toContain("langfuse-tracer");
     expect(compiled.channels?.feishu?.enabled).toBe(true);
     expect(compiled.channels?.feishu?.accounts).toEqual({
       __nexu_internal_feishu_prewarm__: {
@@ -98,6 +105,32 @@ describe("compileOpenClawConfig", () => {
       },
     });
     expect(compiled.bindings).toEqual([]);
+  });
+
+  it("enables Langfuse tracer by default and disables it when analytics is explicitly off", () => {
+    const defaultCompiled = compileOpenClawConfig(
+      createBaseConfig(),
+      createEnv(),
+    );
+
+    expect(defaultCompiled.plugins?.allow).toContain("langfuse-tracer");
+    expect(defaultCompiled.plugins?.entries?.["langfuse-tracer"]).toEqual({
+      enabled: true,
+    });
+
+    const disabledConfig = createBaseConfig();
+    disabledConfig.desktop = {
+      analyticsEnabled: false,
+    };
+
+    const disabledCompiled = compileOpenClawConfig(disabledConfig, createEnv());
+
+    // langfuse-tracer is always in plugins.allow to avoid gateway restarts;
+    // only the entries.enabled flag toggles it.
+    expect(disabledCompiled.plugins?.allow).toContain("langfuse-tracer");
+    expect(disabledCompiled.plugins?.entries?.["langfuse-tracer"]).toEqual({
+      enabled: false,
+    });
   });
 
   it("uses the real Feishu account once connected and does not keep the prewarm account", () => {
@@ -131,6 +164,9 @@ describe("compileOpenClawConfig", () => {
         appId: "cli_app_id",
         appSecret: "cli_app_secret",
         connectionMode: "websocket",
+        dmPolicy: "open",
+        groupPolicy: "open",
+        allowFrom: ["*"],
       },
     });
     expect(compiled.bindings).toEqual([
@@ -174,6 +210,9 @@ describe("compileOpenClawConfig", () => {
         appId: "cli_app_id",
         appSecret: "cli_app_secret",
         connectionMode: "websocket",
+        dmPolicy: "open",
+        groupPolicy: "open",
+        allowFrom: ["*"],
       },
     });
     expect(compiled.bindings).toEqual([]);
@@ -292,6 +331,36 @@ describe("compileOpenClawConfig", () => {
 
   it("compiles ollama providers with the native ollama API", () => {
     const config = createBaseConfig();
+    config.models = {
+      mode: "merge",
+      providers: {
+        ollama: {
+          enabled: true,
+          displayName: "Ollama",
+          baseUrl: "http://127.0.0.1:11434",
+          auth: "api-key",
+          api: "ollama",
+          apiKey: "ollama-local",
+          models: [
+            {
+              id: "qwen2.5-coder:7b",
+              name: "qwen2.5-coder:7b",
+              api: "ollama",
+              reasoning: false,
+              input: ["text"],
+              cost: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+              },
+              contextWindow: 0,
+              maxTokens: 0,
+            },
+          ],
+        },
+      },
+    };
     config.providers = [
       {
         id: "provider_ollama",

@@ -1,4 +1,5 @@
 import { selectPreferredModel } from "@nexu/shared";
+import type { OpenClawConfig } from "@nexu/shared";
 import type { ControllerEnv } from "../app/env.js";
 import { logger } from "../lib/logger.js";
 import {
@@ -6,12 +7,16 @@ import {
   compileOpenClawConfig,
   resolveModelId,
 } from "../lib/openclaw-config-compiler.js";
+import type { CreditGuardStateWriter } from "../runtime/credit-guard-state-writer.js";
 import type { OpenClawAuthProfilesStore } from "../runtime/openclaw-auth-profiles-store.js";
 import type { OpenClawAuthProfilesWriter } from "../runtime/openclaw-auth-profiles-writer.js";
 import type { OpenClawConfigWriter } from "../runtime/openclaw-config-writer.js";
-import type { OpenClawRuntimeModelWriter } from "../runtime/openclaw-runtime-model-writer.js";
-import type { OpenClawRuntimePluginWriter } from "../runtime/openclaw-runtime-plugin-writer.js";
 import type { OpenClawWatchTrigger } from "../runtime/openclaw-watch-trigger.js";
+import {
+  type OpenClawRuntimeModelWriter,
+  resolveNoModelConfiguredMessage,
+} from "../runtime/slimclaw-runtime-model-writer.js";
+import type { OpenClawRuntimePluginWriter } from "../runtime/slimclaw-runtime-plugin-writer.js";
 import type { WorkspaceTemplateWriter } from "../runtime/workspace-template-writer.js";
 import type { CompiledOpenClawStore } from "../store/compiled-openclaw-store.js";
 import type { NexuConfigStore } from "../store/nexu-config-store.js";
@@ -28,11 +33,15 @@ function resolvePrimaryModelRef(
   oauthState: OAuthConnectionState,
 ): string {
   const availableRuntimeModels = collectRuntimeModelRefs(compiled);
+  const configuredProviderKeys = new Set(
+    Object.keys(compiled.models?.providers ?? {}),
+  );
 
   if (typeof model === "string") {
     return resolveAvailableRuntimeModel(
       resolveModelId(config, env, model, oauthState),
       availableRuntimeModels,
+      configuredProviderKeys,
     );
   }
 
@@ -40,12 +49,14 @@ function resolvePrimaryModelRef(
     return resolveAvailableRuntimeModel(
       resolveModelId(config, env, model.primary, oauthState),
       availableRuntimeModels,
+      configuredProviderKeys,
     );
   }
 
   return resolveAvailableRuntimeModel(
     resolveModelId(config, env, env.defaultModelId, oauthState),
     availableRuntimeModels,
+    configuredProviderKeys,
   );
 }
 
@@ -68,6 +79,7 @@ const OAUTH_PROVIDER_PREFIXES = ["openai-codex/"];
 function resolveAvailableRuntimeModel(
   desiredRef: string,
   availableRuntimeModels: Array<{ id: string; name: string }>,
+  configuredProviderKeys: ReadonlySet<string>,
 ): string {
   if (availableRuntimeModels.some((model) => model.id === desiredRef)) {
     return desiredRef;
@@ -79,21 +91,39 @@ function resolveAvailableRuntimeModel(
     return desiredRef;
   }
 
+  // Trust any model ref whose provider is configured in compiled.models.providers,
+  // even if the provider's explicit `models` list is empty. This covers BYOK
+  // flows where the user enabled a provider (e.g. Anthropic) with their own
+  // API key but never added models to its allowlist — OpenClaw's
+  // resolveModelWithRegistry has a generic-fallback path that builds a
+  // synthetic model entry when providerConfig is present, so the request
+  // still goes through. Without this, the user's explicit selection is
+  // silently overridden with the link default.
+  const providerKey = desiredRef.split("/", 1)[0];
+  if (providerKey && configuredProviderKeys.has(providerKey)) {
+    return desiredRef;
+  }
+
   return selectPreferredModel(availableRuntimeModels)?.id ?? desiredRef;
 }
 
 export class OpenClawSyncService {
-  private pendingSync: Promise<{ configPushed: boolean }> | null = null;
+  private pendingSync: Promise<{
+    configPushed: boolean;
+    configChanged: boolean;
+  }> | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private settling = false;
   private settlingDirty = false;
   private settlingResolvers: Array<{
-    resolve: (v: { configPushed: boolean }) => void;
+    resolve: (v: { configPushed: boolean; configChanged: boolean }) => void;
     reject: (e: unknown) => void;
   }> = [];
   private static readonly DEBOUNCE_MS = 100;
   private static readonly SETTLING_MS = 3000;
   private syncCounter = 0;
+  /** Tracks the last-known skill allowlist to detect skill-specific changes. */
+  private lastSkillAllowlist: ReadonlySet<string> = new Set();
 
   constructor(
     private readonly env: ControllerEnv,
@@ -104,6 +134,7 @@ export class OpenClawSyncService {
     private readonly authProfilesStore: OpenClawAuthProfilesStore,
     private readonly runtimePluginWriter: OpenClawRuntimePluginWriter,
     private readonly runtimeModelWriter: OpenClawRuntimeModelWriter,
+    private readonly creditGuardStateWriter: CreditGuardStateWriter,
     private readonly templateWriter: WorkspaceTemplateWriter,
     private readonly watchTrigger: OpenClawWatchTrigger,
     private readonly gatewayService: OpenClawGatewayService,
@@ -121,6 +152,7 @@ export class OpenClawSyncService {
           .getAllInstalled()
           .filter((r) => r.source !== "workspace")
           .map((r) => r.slug)
+          .sort((left, right) => left.localeCompare(right))
       : undefined;
 
     const workspaceMap = this.workspaceScanner
@@ -173,7 +205,9 @@ export class OpenClawSyncService {
       );
     } else {
       logger.info({}, "sync settling ended — no deferred changes");
-      for (const r of resolvers) r.resolve({ configPushed: false });
+      for (const r of resolvers) {
+        r.resolve({ configPushed: false, configChanged: false });
+      }
     }
   }
 
@@ -182,7 +216,7 @@ export class OpenClawSyncService {
    * execution. During settling mode (startup), calls are deferred
    * entirely and flushed once at the end.
    */
-  async syncAll(): Promise<{ configPushed: boolean }> {
+  async syncAll(): Promise<{ configPushed: boolean; configChanged: boolean }> {
     if (this.settling) {
       this.settlingDirty = true;
       logger.debug({}, "syncAll deferred (settling mode)");
@@ -215,7 +249,10 @@ export class OpenClawSyncService {
    * Immediate sync bypassing debounce and settling.
    * Used during bootstrap where we need the config written before OpenClaw starts.
    */
-  async syncAllImmediate(): Promise<{ configPushed: boolean }> {
+  async syncAllImmediate(): Promise<{
+    configPushed: boolean;
+    configChanged: boolean;
+  }> {
     return this.doSync();
   }
 
@@ -225,14 +262,23 @@ export class OpenClawSyncService {
   }
 
   /**
-   * Write platform templates to a specific bot's workspace.
-   * Called when creating a new bot to seed workspace with platform files.
+   * Seed platform templates into a specific bot's workspace.
+   *
+   * Should only be called once per bot, at creation time
+   * (`AgentService.createBot`). The underlying writer is strictly
+   * seed-if-missing — it never overwrites — so a duplicate call is a
+   * harmless no-op, but it is conceptually wrong: agents read/write these
+   * platform docs at runtime, and any caller that re-seeds is implicitly
+   * claiming the bot's workspace state should be reset.
    */
   async writePlatformTemplatesForBot(botId: string): Promise<void> {
     await this.templateWriter.write([{ id: botId, status: "active" }]);
   }
 
-  private async doSync(): Promise<{ configPushed: boolean }> {
+  private async doSync(): Promise<{
+    configPushed: boolean;
+    configChanged: boolean;
+  }> {
     const seq = ++this.syncCounter;
     const config = await this.configStore.getConfig();
     const oauthState = await this.authProfilesStore.getOAuthConnectionState();
@@ -249,13 +295,39 @@ export class OpenClawSyncService {
         )
       : undefined;
 
-    const compiled = compileOpenClawConfig(
+    const rawCompiled = compileOpenClawConfig(
       config,
       this.env,
       oauthState,
       installedSlugs,
       workspaceMap,
     );
+
+    const hasAnyProvider =
+      Object.keys(rawCompiled.models?.providers ?? {}).length > 0;
+
+    // When no model provider is configured (e.g. after link logout with no
+    // BYOK keys), strip the model from agents so OpenClaw cannot fall back
+    // to its built-in registry with the bare model name. This normalization
+    // must happen BEFORE shouldPushConfig() — otherwise the pre-normalized
+    // hash we diff against diverges from the post-normalized hash we store
+    // via noteConfigWritten(), which would mark every subsequent no-provider
+    // sync as changed and trigger spurious touchAnySkillMarker() runs.
+    // Rebuild immutably (no in-place mutation of the compiled object).
+    const compiled: OpenClawConfig = hasAnyProvider
+      ? rawCompiled
+      : {
+          ...rawCompiled,
+          agents: {
+            ...rawCompiled.agents,
+            defaults: rawCompiled.agents.defaults
+              ? { ...rawCompiled.agents.defaults, model: undefined }
+              : rawCompiled.agents.defaults,
+            list: (rawCompiled.agents.list ?? []).map((agent) =>
+              agent.model ? { ...agent, model: undefined } : agent,
+            ),
+          },
+        };
 
     logger.info(
       {
@@ -281,18 +353,41 @@ export class OpenClawSyncService {
     }
 
     // 2. Always write files once (persistence + watcher hot-reload path).
-    await this.configWriter.write(compiled);
-    await this.authProfilesWriter.writeForAgents(compiled, config.providers);
-    this.gatewayService.noteConfigWritten(compiled);
-    const runtimeModelRef = resolvePrimaryModelRef(
-      compiled.agents.defaults?.model,
-      config,
+    const configChanged = await this.configWriter.write(compiled);
+    await this.authProfilesWriter.writeForAgents(
       compiled,
-      this.env,
-      oauthState,
+      config.models.providers,
     );
+    this.gatewayService.noteConfigWritten(compiled);
+    const runtimeModelRef = hasAnyProvider
+      ? resolvePrimaryModelRef(
+          compiled.agents.defaults?.model,
+          config,
+          compiled,
+          this.env,
+          oauthState,
+        )
+      : null;
     logger.info({ seq, runtimeModelRef }, "doSync: resolved runtime model");
-    await this.runtimeModelWriter.write(runtimeModelRef);
+    // Write locale state for the credit-guard patch in OpenClaw runtime.
+    // Match the controller's own locale default: unset → "en" (not "zh-CN").
+    const locale =
+      (config.desktop as Record<string, unknown>).locale === "zh-CN"
+        ? "zh-CN"
+        : "en";
+    if (runtimeModelRef) {
+      await this.runtimeModelWriter.write(runtimeModelRef);
+    } else {
+      // TODO(alche): This writes `noModelMessage` into the runtime-model state
+      // file, but the downstream OpenClaw/runtime consumer still primarily acts
+      // on non-empty `selectedModelRef` / `promptNotice`. Wire that reader path
+      // to surface `noModelMessage` explicitly so users see this guidance
+      // instead of falling through to a generic runtime/provider error.
+      await this.runtimeModelWriter.writeNoModelState(
+        resolveNoModelConfiguredMessage(locale),
+      );
+    }
+    await this.creditGuardStateWriter.write(locale);
     await this.compiledStore.saveConfig(compiled);
 
     // 3. If OpenClaw is not connected yet, nudge the file watcher after the
@@ -301,7 +396,51 @@ export class OpenClawSyncService {
       await this.watchTrigger.touchConfig();
     }
 
-    logger.info({ seq, configPushed }, "doSync: complete");
-    return { configPushed };
+    // 4. Nudge OpenClaw's skills watcher + restart gateway ONLY when the
+    // agent skill allowlist actually changed. OpenClaw hot-reloads model,
+    // channel, and plugin changes just fine — only agents.list skill
+    // changes are treated as kind "none" and require a full restart.
+    // Gate on skill-list diff to avoid unnecessary restarts during
+    // normal model/channel/provider updates.
+    //
+    // NOTE: This only gates on allowlist diffs (skill added/removed).
+    // Skill file content changes (SKILL.md edits, ClawHub updates) with
+    // an unchanged allowlist do NOT trigger a gateway restart — and that
+    // is correct. OpenClaw's chokidar watcher handles file-level changes
+    // natively via snapshotVersion bump. Do NOT add restart to that path.
+    if (configPushed) {
+      const prevSkills = this.lastSkillAllowlist;
+      const nextSkills = this.extractSkillAllowlist(compiled);
+      if (!this.skillAllowlistEqual(prevSkills, nextSkills)) {
+        await this.watchTrigger.nudgeSkillsWatcher("config-pushed");
+      }
+    }
+    this.lastSkillAllowlist = this.extractSkillAllowlist(compiled);
+
+    logger.info({ seq, configPushed, configChanged }, "doSync: complete");
+    return { configPushed, configChanged };
+  }
+
+  private extractSkillAllowlist(
+    compiled: ReturnType<typeof compileOpenClawConfig>,
+  ): ReadonlySet<string> {
+    const skills = new Set<string>();
+    for (const agent of compiled.agents.list ?? []) {
+      for (const skill of agent.skills ?? []) {
+        skills.add(skill);
+      }
+    }
+    return skills;
+  }
+
+  private skillAllowlistEqual(
+    a: ReadonlySet<string>,
+    b: ReadonlySet<string>,
+  ): boolean {
+    if (a.size !== b.size) return false;
+    for (const skill of a) {
+      if (!b.has(skill)) return false;
+    }
+    return true;
   }
 }

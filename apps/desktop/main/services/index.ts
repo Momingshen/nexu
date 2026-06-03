@@ -22,10 +22,8 @@ export {
   stopAllServices,
   teardownLaunchdServices,
   ensureNexuProcessesDead,
-  isLaunchdBootstrapEnabled,
   getDefaultPlistDir,
   getLogDir,
-  resolveLaunchdPaths,
   type LaunchdBootstrapEnv,
   type LaunchdBootstrapResult,
 } from "./launchd-bootstrap";
@@ -33,6 +31,7 @@ export {
 export {
   installLaunchdQuitHandler,
   quitWithDecision,
+  runTeardownAndExit,
   type QuitHandlerOptions,
   type QuitDecision,
 } from "./quit-handler";

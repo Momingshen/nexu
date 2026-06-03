@@ -1,12 +1,19 @@
+import { DingtalkSetupView } from "@/components/channel-setup/dingtalk-setup-view";
 import { DiscordSetupView } from "@/components/channel-setup/discord-setup-view";
 import { FeishuSetupView } from "@/components/channel-setup/feishu-setup-view";
+import { QqbotSetupView } from "@/components/channel-setup/qqbot-setup-view";
 import { SlackOAuthView } from "@/components/channel-setup/slack-oauth-view";
 import { TelegramSetupView } from "@/components/channel-setup/telegram-setup-view";
 import { WechatSetupView } from "@/components/channel-setup/wechat-setup-view";
+import { WecomSetupView } from "@/components/channel-setup/wecom-setup-view";
 import { WhatsappSetupView } from "@/components/channel-setup/whatsapp-setup-view";
 import { useBotQuota } from "@/hooks/use-bot-quota";
 import { useCountdown } from "@/hooks/use-countdown";
 import { getChannelChatUrl } from "@/lib/channel-links";
+import {
+  type ChannelLiveStatus,
+  getChannelStatusLabel,
+} from "@/lib/channel-live-status";
 import { track } from "@/lib/tracking";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -40,9 +47,12 @@ type Platform =
   | "slack"
   | "discord"
   | "feishu"
+  | "dingtalk"
+  | "wecom"
   | "wechat"
   | "telegram"
-  | "whatsapp";
+  | "whatsapp"
+  | "qqbot";
 
 type LiveStatusData = {
   gatewayConnected: boolean;
@@ -58,6 +68,9 @@ const PLATFORMS: { id: Platform; emoji: string; desc: string }[] = [
   { id: "whatsapp", emoji: "\u{1F4DE}", desc: "Personal WhatsApp" },
   { id: "wechat", emoji: "\u{1F4AC}", desc: "Personal WeChat" },
   { id: "telegram", emoji: "\u{2708}\u{FE0F}", desc: "Telegram Bot" },
+  { id: "dingtalk", emoji: "\u{1F4F1}", desc: "DingTalk Bot" },
+  { id: "qqbot", emoji: "\u{1F427}", desc: "QQ Bot" },
+  { id: "wecom", emoji: "\u{1F4BC}", desc: "WeCom Bot" },
   { id: "feishu", emoji: "\u{1F426}", desc: "Feishu Bot" },
   { id: "slack", emoji: "#", desc: "Workspace Bot" },
   { id: "discord", emoji: "\u{1F3AE}", desc: "Server Bot" },
@@ -67,9 +80,12 @@ const PLATFORM_LABELS: Record<Platform, string> = {
   slack: "Slack",
   discord: "Discord",
   feishu: "Feishu",
+  dingtalk: "DingTalk",
+  wecom: "WeCom",
   wechat: "WeChat",
   telegram: "Telegram",
   whatsapp: "WhatsApp",
+  qqbot: "QQ",
 };
 
 // ─── Main page ───────────────────────────────────────────────
@@ -250,6 +266,21 @@ export function ChannelsPage() {
             onConnected={handleConnected}
             disabled={quotaLimited}
           />
+        ) : platform === "dingtalk" ? (
+          <DingtalkSetupView
+            onConnected={handleConnected}
+            disabled={quotaLimited}
+          />
+        ) : platform === "qqbot" ? (
+          <QqbotSetupView
+            onConnected={handleConnected}
+            disabled={quotaLimited}
+          />
+        ) : platform === "wecom" ? (
+          <WecomSetupView
+            onConnected={handleConnected}
+            disabled={quotaLimited}
+          />
         ) : platform === "whatsapp" ? (
           <WhatsappSetupView
             onConnected={handleConnected}
@@ -314,7 +345,18 @@ function ConfiguredView({
   const liveStatus = liveStatusData
     ? (liveEntry?.status ?? "connecting")
     : "connecting";
-  const liveError = liveEntry?.lastError ?? null;
+  const liveStatusLabel = getChannelStatusLabel(
+    liveStatus as ChannelLiveStatus,
+    {
+      connected: t("channels.statusConnected", {
+        platform: PLATFORM_LABELS[platform],
+      }),
+      connecting: `${PLATFORM_LABELS[platform]} ${t("channels.statusConnecting")}`,
+      disconnected: `${PLATFORM_LABELS[platform]} ${t("channels.statusError")}`,
+      error: `${PLATFORM_LABELS[platform]} ${t("channels.statusError")}`,
+      restarting: `${PLATFORM_LABELS[platform]} ${t("channels.statusConnecting")}`,
+    },
+  );
 
   const disconnectMutation = useMutation({
     mutationFn: async () => {
@@ -428,30 +470,20 @@ function ConfiguredView({
           </div>
           <div className="flex-1">
             <div className="text-[13px] font-semibold text-text-primary">
-              {liveStatus === "error" || liveStatus === "disconnected"
-                ? `${PLATFORM_LABELS[platform]} ${t("channels.statusError")}`
-                : liveStatus === "connecting" || liveStatus === "restarting"
-                  ? `${PLATFORM_LABELS[platform]} ${t("channels.statusConnecting")}`
-                  : t("channels.statusConnected", {
-                      platform: PLATFORM_LABELS[platform],
-                    })}
+              {liveStatusLabel}
             </div>
             <div className="text-[11px] text-text-muted mt-0.5">
-              {liveError ? (
-                <span className="text-red-400">{liveError}</span>
-              ) : (
-                <>
-                  {channel.teamName ?? channel.accountId}
-                  {channel.createdAt &&
-                    ` \u00B7 ${t("channels.configuredDate", { date: new Date(channel.createdAt).toLocaleDateString() })}`}
-                  {liveStatus === "connected" && (
-                    <>
-                      {" \u00B7 "}
-                      {t("channels.connectionActive")}
-                    </>
-                  )}
-                </>
-              )}
+              <>
+                {channel.teamName ?? channel.accountId}
+                {channel.createdAt &&
+                  ` \u00B7 ${t("channels.configuredDate", { date: new Date(channel.createdAt).toLocaleDateString() })}`}
+                {liveStatus === "connected" && (
+                  <>
+                    {" \u00B7 "}
+                    {t("channels.connectionActive")}
+                  </>
+                )}
+              </>
             </div>
           </div>
           <button

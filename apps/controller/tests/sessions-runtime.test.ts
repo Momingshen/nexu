@@ -44,6 +44,7 @@ describe("SessionsRuntime", () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     if (rootDir) {
       await rm(rootDir, { recursive: true, force: true });
       rootDir = null;
@@ -422,6 +423,151 @@ describe("SessionsRuntime", () => {
 
     expect(session?.channelType).toBe("openclaw-weixin");
     expect(session?.title).toBe("WeChat ClawBot");
+  });
+
+  it("infers dingtalk channel and sender name from the sessions index openai-user context", async () => {
+    rootDir = await mkdtemp(path.join(tmpdir(), "nexu-sessions-runtime-"));
+    const runtime = new SessionsRuntime(
+      createEnv({
+        openclawStateDir: rootDir,
+        openclawConfigPath: path.join(rootDir, "openclaw.json"),
+        openclawSkillsDir: path.join(rootDir, "skills"),
+        openclawWorkspaceTemplatesDir: path.join(
+          rootDir,
+          "workspace-templates",
+        ),
+      }),
+    );
+
+    const sessionsDir = path.join(rootDir, "agents", "main", "sessions");
+    await mkdir(sessionsDir, { recursive: true });
+    const sessionKey = "2c3d5c06-2b91-4dd1-a8d2-b4e707645ff8";
+    const sessionPath = path.join(sessionsDir, `${sessionKey}.jsonl`);
+
+    await writeFile(
+      sessionPath,
+      `${JSON.stringify({
+        type: "message",
+        id: "msg-dingtalk-1",
+        timestamp: "2026-04-14T10:00:10.543Z",
+        message: {
+          role: "user",
+          timestamp: 1776160810538,
+          content: [{ type: "text", text: "你好" }],
+        },
+      })}\n`,
+      "utf8",
+    );
+    await writeFile(
+      sessionPath.replace(/\.jsonl$/, ".meta.json"),
+      `${JSON.stringify({ title: sessionKey }, null, 2)}\n`,
+      "utf8",
+    );
+    await writeFile(
+      path.join(sessionsDir, "sessions.json"),
+      `${JSON.stringify(
+        {
+          'agent:main:openai-user:{"channel":"dingtalk-connector","accountid":"__default__","chattype":"direct","peerid":"dingtalk-user-123","sendername":"Test User"}':
+            {
+              sessionId: sessionKey,
+              updatedAt: 1776161129268,
+            },
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const sessions = await runtime.listSessions();
+    const session = sessions.find((item) => item.sessionKey === sessionKey);
+
+    expect(session?.channelType).toBe("dingtalk");
+    expect(session?.title).toBe("Test User · dingtalk");
+  });
+
+  it("uses the WeChat ClawBot fallback even when an opaque @im.wechat sender id is present", async () => {
+    // The iLink wechat protocol does not expose nicknames; inbound messages
+    // only carry an opaque `<id>@im.wechat` sender id. Don't leak the raw
+    // id into the sidebar — fall through to the generic fallback.
+    rootDir = await mkdtemp(path.join(tmpdir(), "nexu-sessions-runtime-"));
+    const runtime = new SessionsRuntime(
+      createEnv({
+        openclawStateDir: rootDir,
+        openclawConfigPath: path.join(rootDir, "openclaw.json"),
+        openclawSkillsDir: path.join(rootDir, "skills"),
+        openclawWorkspaceTemplatesDir: path.join(
+          rootDir,
+          "workspace-templates",
+        ),
+      }),
+    );
+
+    const sessionsDir = path.join(rootDir, "agents", "bot-weixin", "sessions");
+    await mkdir(sessionsDir, { recursive: true });
+    const sessionKey = "f6c3b8a1-2222-4444-8888-aaaaaaaaaaaa";
+    const sessionPath = path.join(sessionsDir, `${sessionKey}.jsonl`);
+    const opaqueSenderId = "o9cq806H7ohuShZ_uaSLLSsPtFGc@im.wechat";
+
+    await writeFile(
+      sessionPath,
+      `${JSON.stringify({
+        type: "message",
+        id: "msg-weixin-3",
+        timestamp: "2026-03-22T10:49:06.478Z",
+        message: {
+          role: "user",
+          timestamp: 1774176546475,
+          content: [
+            {
+              type: "text",
+              text: [
+                "Conversation info (untrusted metadata):",
+                "```json",
+                JSON.stringify(
+                  {
+                    sender_id: opaqueSenderId,
+                    sender: opaqueSenderId,
+                    channel: "openclaw-weixin",
+                  },
+                  null,
+                  2,
+                ),
+                "```",
+                "",
+                "Sender (untrusted metadata):",
+                "```json",
+                JSON.stringify(
+                  {
+                    label: opaqueSenderId,
+                    id: opaqueSenderId,
+                    name: opaqueSenderId,
+                  },
+                  null,
+                  2,
+                ),
+                "```",
+              ].join("\n"),
+            },
+          ],
+        },
+      })}\n`,
+      "utf8",
+    );
+    // Existing session has the raw opaque id persisted as title — verify
+    // shouldReplaceInferredTitle heals it back to the generic fallback.
+    await writeFile(
+      sessionPath.replace(/\.jsonl$/, ".meta.json"),
+      `${JSON.stringify({ title: opaqueSenderId }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const sessions = await runtime.listSessions();
+    const session = sessions.find((item) => item.sessionKey === sessionKey);
+
+    expect(session?.channelType).toBe("openclaw-weixin");
+    expect(session?.title).toBe("WeChat ClawBot");
+    expect(session?.title).not.toContain("@im.wechat");
   });
 
   it("backfills channel types from sessions.json when transcript metadata is not channel-specific", async () => {
@@ -1340,5 +1486,193 @@ describe("SessionsRuntime", () => {
 
     // G01ABC2DEF3 is a Slack group ID — should be filtered, fall back to senderName
     expect(session?.title).toBe("Eve · slack");
+  });
+
+  it("replaces qqbot opaque ids with a friendlier user label", async () => {
+    rootDir = await mkdtemp(path.join(tmpdir(), "nexu-sessions-runtime-"));
+    const runtime = new SessionsRuntime(
+      createEnv({
+        openclawStateDir: rootDir,
+        openclawConfigPath: path.join(rootDir, "openclaw.json"),
+        openclawSkillsDir: path.join(rootDir, "skills"),
+        openclawWorkspaceTemplatesDir: path.join(
+          rootDir,
+          "workspace-templates",
+        ),
+      }),
+    );
+
+    const sessionsDir = path.join(rootDir, "agents", "bot-qq", "sessions");
+    await mkdir(sessionsDir, { recursive: true });
+    const sessionKey = "qqbot-opaque-user";
+    const sessionPath = path.join(sessionsDir, `${sessionKey}.jsonl`);
+
+    await writeFile(
+      sessionPath,
+      `${JSON.stringify({
+        type: "message",
+        id: "msg-qqbot-1",
+        timestamp: "2026-03-31T12:00:22.688Z",
+        message: {
+          role: "user",
+          timestamp: Date.parse("2026-03-31T12:00:22.688Z"),
+          content: [
+            {
+              type: "text",
+              text: [
+                "Conversation info (untrusted metadata):",
+                "```json",
+                JSON.stringify(
+                  {
+                    message_id: "qqbot-msg-1",
+                    sender_id: "68B6446D467308C61B580FB6D56AEA49",
+                    sender: "68B6446D467308C61B580FB6D56AEA49",
+                  },
+                  null,
+                  2,
+                ),
+                "```",
+                "",
+                "Sender (untrusted metadata):",
+                "```json",
+                JSON.stringify(
+                  {
+                    label: "68B6446D467308C61B580FB6D56AEA49",
+                    id: "68B6446D467308C61B580FB6D56AEA49",
+                  },
+                  null,
+                  2,
+                ),
+                "```",
+              ].join("\n"),
+            },
+          ],
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    await writeFile(
+      sessionPath.replace(/\.jsonl$/, ".meta.json"),
+      JSON.stringify(
+        {
+          title: "68B6446D467308C61B580FB6D56AEA49 · qqbot",
+          channelType: "qqbot",
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const sessions = await runtime.listSessions();
+    const session = sessions.find((s) => s.sessionKey === sessionKey);
+
+    expect(session?.title).toBe("QQ user 68B6446D");
+  });
+
+  it("prefers qqbot known-user nicknames over opaque ids", async () => {
+    rootDir = await mkdtemp(path.join(tmpdir(), "nexu-sessions-runtime-"));
+    const homeDir = path.join(rootDir, "home");
+    vi.stubEnv("HOME", homeDir);
+
+    const runtime = new SessionsRuntime(
+      createEnv({
+        openclawStateDir: rootDir,
+        openclawConfigPath: path.join(rootDir, "openclaw.json"),
+        openclawSkillsDir: path.join(rootDir, "skills"),
+        openclawWorkspaceTemplatesDir: path.join(
+          rootDir,
+          "workspace-templates",
+        ),
+      }),
+    );
+
+    const knownUsersDir = path.join(homeDir, ".openclaw", "qqbot", "data");
+    await mkdir(knownUsersDir, { recursive: true });
+    await writeFile(
+      path.join(knownUsersDir, "known-users.json"),
+      JSON.stringify(
+        [
+          {
+            openid: "68B6446D467308C61B580FB6D56AEA49",
+            type: "c2c",
+            nickname: "Ray",
+            accountId: "default",
+          },
+        ],
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const sessionsDir = path.join(rootDir, "agents", "bot-qq", "sessions");
+    await mkdir(sessionsDir, { recursive: true });
+    const sessionKey = "qqbot-known-user";
+    const sessionPath = path.join(sessionsDir, `${sessionKey}.jsonl`);
+
+    await writeFile(
+      sessionPath,
+      `${JSON.stringify({
+        type: "message",
+        id: "msg-qqbot-2",
+        timestamp: "2026-03-31T12:15:22.688Z",
+        message: {
+          role: "user",
+          timestamp: Date.parse("2026-03-31T12:15:22.688Z"),
+          content: [
+            {
+              type: "text",
+              text: [
+                "Conversation info (untrusted metadata):",
+                "```json",
+                JSON.stringify(
+                  {
+                    message_id: "qqbot-msg-2",
+                    sender_id: "68B6446D467308C61B580FB6D56AEA49",
+                    sender: "68B6446D467308C61B580FB6D56AEA49",
+                  },
+                  null,
+                  2,
+                ),
+                "```",
+                "",
+                "Sender (untrusted metadata):",
+                "```json",
+                JSON.stringify(
+                  {
+                    label: "68B6446D467308C61B580FB6D56AEA49",
+                    id: "68B6446D467308C61B580FB6D56AEA49",
+                  },
+                  null,
+                  2,
+                ),
+                "```",
+              ].join("\n"),
+            },
+          ],
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    await writeFile(
+      sessionPath.replace(/\.jsonl$/, ".meta.json"),
+      JSON.stringify(
+        {
+          title: "68B6446D467308C61B580FB6D56AEA49 · qqbot",
+          channelType: "qqbot",
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const sessions = await runtime.listSessions();
+    const session = sessions.find((s) => s.sessionKey === sessionKey);
+
+    expect(session?.title).toBe("Ray");
   });
 });

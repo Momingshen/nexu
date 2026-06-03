@@ -27,15 +27,24 @@ export const hostInvokeChannels = [
   "desktop:get-minimax-oauth-status",
   "desktop:start-minimax-oauth",
   "desktop:cancel-minimax-oauth",
+  "desktop:get-shell-preferences",
+  "desktop:update-shell-preferences",
+  "desktop:get-rewards-status",
+  "desktop:set-reward-balance",
+  "desktop:rewards-updated",
   "shell:open-external",
   "update:check",
+  "update:get-capability",
   "update:download",
   "update:install",
   "update:get-current-version",
+  "update:get-status",
   "update:set-channel",
   "update:set-source",
   "component:check",
   "component:install",
+  "setup:animation-complete",
+  "app:quit",
 ] as const;
 
 export type HostInvokeChannel = (typeof hostInvokeChannels)[number];
@@ -130,17 +139,31 @@ export type HostInvokePayloadMap = {
     region: "global" | "cn";
   };
   "desktop:cancel-minimax-oauth": undefined;
+  "desktop:get-shell-preferences": undefined;
+  "desktop:update-shell-preferences": {
+    launchAtLogin?: boolean;
+    showInDock?: boolean;
+  };
+  "desktop:get-rewards-status": undefined;
+  "desktop:set-reward-balance": {
+    balance: number;
+  };
+  "desktop:rewards-updated": undefined;
   "shell:open-external": {
     url: string;
   };
   "update:check": undefined;
+  "update:get-capability": undefined;
   "update:download": undefined;
   "update:install": undefined;
   "update:get-current-version": undefined;
+  "update:get-status": undefined;
   "update:set-channel": { channel: UpdateChannelName };
   "update:set-source": { source: UpdateSource };
   "component:check": undefined;
   "component:install": { id: string };
+  "setup:animation-complete": undefined;
+  "app:quit": { decision: "quit-completely" | "run-in-background" };
 };
 
 export type HostInvokeResultMap = {
@@ -165,6 +188,7 @@ export type HostInvokeResultMap = {
   "desktop:get-cloud-status": {
     connected: boolean;
     polling?: boolean;
+    userId?: string | null;
     userName?: string | null;
     userEmail?: string | null;
     connectedAt?: string | null;
@@ -182,6 +206,7 @@ export type HostInvokeResultMap = {
       linkUrl: string;
       connected: boolean;
       polling?: boolean;
+      userId?: string | null;
       userName?: string | null;
       userEmail?: string | null;
       connectedAt?: string | null;
@@ -192,6 +217,7 @@ export type HostInvokeResultMap = {
     ok: boolean;
     connected: boolean;
     polling?: boolean;
+    userId?: string | null;
     userName?: string | null;
     userEmail?: string | null;
     connectedAt?: string | null;
@@ -209,6 +235,7 @@ export type HostInvokeResultMap = {
       linkUrl: string;
       connected: boolean;
       polling?: boolean;
+      userId?: string | null;
       userName?: string | null;
       userEmail?: string | null;
       connectedAt?: string | null;
@@ -226,6 +253,7 @@ export type HostInvokeResultMap = {
     ok: boolean;
     connected: boolean;
     polling?: boolean;
+    userId?: string | null;
     userName?: string | null;
     userEmail?: string | null;
     connectedAt?: string | null;
@@ -243,6 +271,7 @@ export type HostInvokeResultMap = {
       linkUrl: string;
       connected: boolean;
       polling?: boolean;
+      userId?: string | null;
       userName?: string | null;
       userEmail?: string | null;
       connectedAt?: string | null;
@@ -254,6 +283,7 @@ export type HostInvokeResultMap = {
     ok: boolean;
     connected: boolean;
     polling?: boolean;
+    userId?: string | null;
     userName?: string | null;
     userEmail?: string | null;
     connectedAt?: string | null;
@@ -271,6 +301,7 @@ export type HostInvokeResultMap = {
       linkUrl: string;
       connected: boolean;
       polling?: boolean;
+      userId?: string | null;
       userName?: string | null;
       userEmail?: string | null;
       connectedAt?: string | null;
@@ -282,6 +313,7 @@ export type HostInvokeResultMap = {
     ok: boolean;
     connected: boolean;
     polling?: boolean;
+    userId?: string | null;
     userName?: string | null;
     userEmail?: string | null;
     connectedAt?: string | null;
@@ -299,6 +331,7 @@ export type HostInvokeResultMap = {
       linkUrl: string;
       connected: boolean;
       polling?: boolean;
+      userId?: string | null;
       userName?: string | null;
       userEmail?: string | null;
       connectedAt?: string | null;
@@ -310,6 +343,7 @@ export type HostInvokeResultMap = {
     ok: boolean;
     connected: boolean;
     polling?: boolean;
+    userId?: string | null;
     userName?: string | null;
     userEmail?: string | null;
     connectedAt?: string | null;
@@ -327,6 +361,7 @@ export type HostInvokeResultMap = {
       linkUrl: string;
       connected: boolean;
       polling?: boolean;
+      userId?: string | null;
       userName?: string | null;
       userEmail?: string | null;
       connectedAt?: string | null;
@@ -338,6 +373,7 @@ export type HostInvokeResultMap = {
     ok: boolean;
     connected: boolean;
     polling?: boolean;
+    userId?: string | null;
     userName?: string | null;
     userEmail?: string | null;
     connectedAt?: string | null;
@@ -355,6 +391,7 @@ export type HostInvokeResultMap = {
       linkUrl: string;
       connected: boolean;
       polling?: boolean;
+      userId?: string | null;
       userName?: string | null;
       userEmail?: string | null;
       connectedAt?: string | null;
@@ -383,13 +420,43 @@ export type HostInvokeResultMap = {
     error?: string | null;
     cancelled: boolean;
   };
+  "desktop:get-shell-preferences": {
+    launchAtLogin: boolean;
+    showInDock: boolean;
+    supportsLaunchAtLogin: boolean;
+    supportsShowInDock: boolean;
+  };
+  "desktop:update-shell-preferences": {
+    launchAtLogin: boolean;
+    showInDock: boolean;
+    supportsLaunchAtLogin: boolean;
+    supportsShowInDock: boolean;
+  };
+  "desktop:get-rewards-status": {
+    cloudBalance?: {
+      totalBalance?: number | null;
+    } | null;
+  };
+  "desktop:set-reward-balance": {
+    cloudBalance?: {
+      totalBalance?: number | null;
+    } | null;
+  };
+  "desktop:rewards-updated": {
+    ok: boolean;
+  };
   "shell:open-external": {
     ok: boolean;
   };
   "update:check": { updateAvailable: boolean };
+  "update:get-capability": DesktopUpdateCapability;
   "update:download": { ok: boolean };
   "update:install": undefined;
   "update:get-current-version": { version: string };
+  "update:get-status": {
+    phase: "idle" | "downloading" | "ready";
+    version: string | null;
+  };
   "update:set-channel": { ok: boolean };
   "update:set-source": { ok: boolean };
   "component:check": {
@@ -401,6 +468,8 @@ export type HostInvokeResultMap = {
     }>;
   };
   "component:install": { ok: boolean };
+  "setup:animation-complete": undefined;
+  "app:quit": undefined;
 };
 
 export type AppInfo = {
@@ -425,6 +494,63 @@ export type DiagnosticsInfo = {
   };
 };
 
+export type DesktopDevDiagnosticsLogLevel =
+  | "debug"
+  | "info"
+  | "warning"
+  | "error";
+
+export type DesktopDevRendererLogEntry = {
+  id: string;
+  ts: string;
+  source: "console" | "page-error";
+  level: DesktopDevDiagnosticsLogLevel;
+  message: string;
+  url: string | null;
+  sourceId: string | null;
+  line: number | null;
+};
+
+export type DesktopDevRendererLogSnapshot = {
+  entries: DesktopDevRendererLogEntry[];
+  truncated: boolean;
+};
+
+export type DesktopDevScreenshotResult = {
+  mimeType: "image/png";
+  base64: string;
+  width: number;
+  height: number;
+  scaleFactor: number;
+};
+
+export type DesktopDevEvalSerializableValue =
+  | null
+  | boolean
+  | number
+  | string
+  | DesktopDevEvalSerializableValue[]
+  | { [key: string]: DesktopDevEvalSerializableValue };
+
+export type DesktopDevEvalResult = {
+  ok: boolean;
+  valueType: string;
+  value: DesktopDevEvalSerializableValue;
+  error?: {
+    name: string;
+    message: string;
+    stack?: string;
+  };
+};
+
+export type DesktopDevDomSnapshotResult = {
+  title: string;
+  url: string;
+  readyState: string;
+  htmlLength: number;
+  htmlSummary: string;
+};
+
 export type DesktopSurface =
   | "web"
   | "openclaw"
@@ -447,6 +573,15 @@ export type HostDesktopCommand =
     }
   | {
       type: "desktop:check-for-updates";
+    }
+  | {
+      type: "develop:open-set-balance";
+    }
+  | {
+      type: "desktop:rewards-updated";
+    }
+  | {
+      type: "setup:complete";
     };
 
 export type RuntimeUnitSnapshot = Omit<RuntimeUnitState, "logTail">;
@@ -470,7 +605,8 @@ export type RuntimeUnitLaunchStrategy =
   | "embedded"
   | "managed"
   | "delegated"
-  | "launchd";
+  | "launchd"
+  | "external";
 
 export type RuntimeUnitPhase =
   | "idle"
@@ -503,7 +639,9 @@ export type RuntimeReasonCode =
   | "launchd_stopped"
   | "launchd_start_requested"
   | "launchd_stop_requested"
-  | "launchd_log_line";
+  | "launchd_log_line"
+  | "external_available"
+  | "external_unavailable";
 
 export type RuntimeLogEntry = {
   id: string;
@@ -551,6 +689,11 @@ export type HostBridge = {
     payload: HostInvokePayloadMap[TChannel],
   ): Promise<HostInvokeResultMap[TChannel]>;
   reportStartupProbe(payload: StartupProbePayload): void;
+  reportRendererDiagnosticsLog(
+    payload: Omit<DesktopDevRendererLogEntry, "id" | "ts" | "source"> & {
+      source: "page-error";
+    },
+  ): void;
   onDesktopCommand(listener: (command: HostDesktopCommand) => void): () => void;
   onRuntimeEvent(listener: (event: RuntimeEvent) => void): () => void;
 };
@@ -558,11 +701,32 @@ export type HostBridge = {
 export type HostBootstrap = {
   buildInfo: DesktopBuildInfo;
   sentryDsn: string | null;
+  posthogApiKey: string | null;
+  posthogHost: string | null;
   isPackaged: boolean;
+  needsSetupAnimation: boolean;
+  webviewPreloadUrl: string;
 };
 
 export type UpdateSource = "r2" | "github";
 export type UpdateChannelName = "stable" | "beta" | "nightly";
+
+export type UpdateDownloadMode = "none" | "in-app" | "external";
+
+export type UpdateApplyMode =
+  | "none"
+  | "in-app"
+  | "external-installer"
+  | "redirect";
+
+export type DesktopUpdateCapability = {
+  platform: NodeJS.Platform;
+  check: boolean;
+  downloadMode: UpdateDownloadMode;
+  applyMode: UpdateApplyMode;
+  applyLabel: string | null;
+  notes: string | null;
+};
 
 export const updaterEvents = [
   "update:checking",
@@ -589,6 +753,7 @@ export type UpdaterEventMap = {
   "update:available": {
     version: string;
     releaseNotes?: string;
+    actionUrl?: string;
     diagnostic: UpdateCheckDiagnostic;
   };
   "update:up-to-date": {
@@ -603,6 +768,7 @@ export type UpdaterEventMap = {
   "update:downloaded": { version: string };
   "update:error": {
     message: string;
+    rawMessage?: string;
     diagnostic?: UpdateCheckDiagnostic;
   };
 };

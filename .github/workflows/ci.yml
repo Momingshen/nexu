@@ -4,6 +4,7 @@ on:
   pull_request:
     paths-ignore:
       - "docs/**"
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -13,6 +14,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  id-token: write
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -104,11 +106,23 @@ jobs:
           NEXU_SKIP_RUNTIME_POSTINSTALL: "1"
         run: pnpm install --frozen-lockfile
 
-      - name: Test
-        run: pnpm test
+      - name: Test with coverage
+        run: pnpm test:coverage
 
-  # ── openclaw-runtime lockfile sync ─────────────────────────────────────────
-  openclaw-runtime-lockfile:
+      - name: Upload unit coverage to Codecov
+        if: ${{ !cancelled() && hashFiles('coverage/lcov.info') != '' }}
+        uses: codecov/codecov-action@v6
+        with:
+          use_oidc: true
+          disable_search: true
+          files: coverage/lcov.info
+          flags: unit
+          name: unit-${{ github.run_id }}-${{ github.run_attempt }}
+          fail_ci_if_error: false
+          verbose: true
+
+  # ── slimclaw runtime-seed lockfile sync ────────────────────────────────────
+  slimclaw-runtime-seed-lockfile:
     runs-on: ubuntu-latest
 
     steps:
@@ -120,9 +134,9 @@ jobs:
         with:
           node-version: 24
 
-      - name: Verify openclaw-runtime lockfile is in sync
+      - name: Verify slimclaw runtime-seed lockfile is in sync
         run: corepack npm ci --ignore-scripts --no-audit --no-fund
-        working-directory: openclaw-runtime
+        working-directory: packages/slimclaw/runtime-seed
 
   # ── Build + ESM check ─────────────────────────────────────────────────────
   build:

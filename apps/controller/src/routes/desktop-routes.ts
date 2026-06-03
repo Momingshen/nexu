@@ -6,10 +6,21 @@ import type { ControllerBindings } from "../types.js";
 
 const desktopReadyResponseSchema = z.object({
   ready: z.boolean(),
+  coreReady: z.boolean(),
+  degraded: z.boolean(),
+  bootPhase: z.enum([
+    "preparing",
+    "starting-managed-runtime",
+    "attaching-external-runtime",
+    "reconciling-runtime",
+    "stabilizing-runtime",
+    "ready",
+  ]),
   workspacePath: z.string(),
-  runtime: z.object({
+  controlPlane: z.object({
     ok: z.boolean(),
-    status: z.number().nullable(),
+    phase: z.enum(["disconnected", "connecting", "ready", "degraded"]),
+    wsConnected: z.boolean(),
   }),
   status: z.enum(["active", "starting", "degraded", "unhealthy"]),
 });
@@ -49,11 +60,21 @@ const fallbackEventsQuerySchema = z.object({
 
 const desktopPreferencesResponseSchema = z.object({
   locale: z.enum(["en", "zh-CN"]).nullable(),
+  analyticsEnabled: z.boolean(),
 });
 
-const desktopPreferencesUpdateSchema = z.object({
-  locale: z.enum(["en", "zh-CN"]),
-});
+const desktopPreferencesUpdateSchema = z
+  .object({
+    locale: z.enum(["en", "zh-CN"]).optional(),
+    analyticsEnabled: z.boolean().optional(),
+  })
+  .refine(
+    (value) =>
+      value.locale !== undefined || value.analyticsEnabled !== undefined,
+    {
+      message: "At least one desktop preference must be provided",
+    },
+  );
 
 export function registerDesktopRoutes(
   app: OpenAPIHono<ControllerBindings>,
@@ -149,7 +170,12 @@ export function registerDesktopRoutes(
       },
     }),
     async (c) => {
-      const runtime = await container.runtimeHealth.probe();
+      const controlPlane = await container.controlPlaneHealth.probe({
+        timeoutMs: 1500,
+      });
+      const coreReady =
+        container.runtimeState.bootPhase === "ready" && controlPlane.ok;
+      const degraded = coreReady && container.runtimeState.status !== "active";
       const bots = await container.configStore.listBots();
       const preferredBot =
         bots.find((bot) => bot.status === "active") ??
@@ -158,7 +184,10 @@ export function registerDesktopRoutes(
 
       return c.json(
         {
-          ready: true,
+          ready: coreReady && !degraded,
+          coreReady,
+          degraded,
+          bootPhase: container.runtimeState.bootPhase,
           workspacePath: preferredBot
             ? path.join(
                 container.env.openclawStateDir,
@@ -166,7 +195,11 @@ export function registerDesktopRoutes(
                 preferredBot.id,
               )
             : path.join(container.env.openclawStateDir, "agents"),
-          runtime,
+          controlPlane: {
+            ok: controlPlane.ok,
+            phase: controlPlane.phase,
+            wsConnected: controlPlane.wsConnected,
+          },
           status: container.runtimeState.status,
         },
         200,
@@ -222,6 +255,8 @@ export function registerDesktopRoutes(
       return c.json(
         {
           locale: await container.configStore.getStoredDesktopLocale(),
+          analyticsEnabled:
+            await container.configStore.getDesktopAnalyticsEnabled(),
         },
         200,
       );
@@ -252,12 +287,83 @@ export function registerDesktopRoutes(
     }),
     async (c) => {
       const body = c.req.valid("json");
-      return c.json(
-        {
-          locale: await container.configStore.setDesktopLocale(body.locale),
-        },
-        200,
-      );
+      const locale =
+        body.locale !== undefined
+          ? await container.configStore.setDesktopLocale(body.locale)
+          : await container.configStore.getStoredDesktopLocale();
+      const analyticsEnabled =
+        body.analyticsEnabled !== undefined
+          ? await container.configStore.setDesktopAnalyticsEnabled(
+              body.analyticsEnabled,
+            )
+          : await container.configStore.getDesktopAnalyticsEnabled();
+      await container.openclawSyncService.syncAll();
+      return c.json({ locale, analyticsEnabled }, 200);
     },
   );
+
+  // Compaction notification endpoint — called by OpenClaw patch
+  // (handleAutoCompactionStart in compact-*.js / dispatch-*.js) via
+  // HTTP POST when Pi auto-compaction starts.
+  //
+  // Why HTTP instead of stderr NEXU_EVENT:
+  //   In launchd mode, controller doesn't spawn OpenClaw (launchd does),
+  //   so controller can't read OpenClaw's stderr. HTTP works regardless
+  //   of process management mode.
+  //
+  // Why not onAgentEvent:
+  //   handleAutoCompactionStart's subscriber-emitted compaction events
+  //   don't reach agent-runner-execution's onAgentEvent (different
+  //   execution contexts). Verified via debug logging 2026-04-04.
+  //
+  // Session key format: agent:<agentId>:direct:<userId>
+  // Channel is resolved from payload or first connected channel in config.
+  // Target (to) is the user ID parsed from session key — works for feishu
+  // DMs (ou_xxx), verified via openclaw message send 2026-04-04.
+  app.post("/api/internal/compaction-notify", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const sessionKey = body.sessionKey as string | undefined;
+    if (!sessionKey) return c.json({ ok: false }, 400);
+
+    const parts = sessionKey.split(":");
+    const to = parts.length >= 4 ? parts.slice(3).join(":") : undefined;
+    if (!to) return c.json({ ok: false, reason: "no target" }, 400);
+
+    // Resolve channel: prefer explicit value from OpenClaw context,
+    // fall back to first connected channel in Nexu config.
+    // ctx.params.messageChannel is often null in compaction context,
+    // so the fallback is the common path.
+    let channel = typeof body.channel === "string" ? body.channel : undefined;
+    if (!channel) {
+      const cfg = await container.configStore.getConfig();
+      channel = cfg.channels.find(
+        (ch) => ch.status === "connected",
+      )?.channelType;
+    }
+    if (!channel) return c.json({ ok: false, reason: "no channel" }, 400);
+
+    const locale = await container.configStore.getDesktopLocale();
+    const message =
+      locale === "en"
+        ? "⏳ Compacting conversation history, estimated ~30s..."
+        : "⏳ 正在整理对话记录，预计30秒内完成...";
+
+    try {
+      await container.gatewayService.sendChannelMessage({
+        to,
+        message,
+        channel,
+        sessionKey,
+      });
+      return c.json({ ok: true });
+    } catch (err) {
+      return c.json(
+        {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        500,
+      );
+    }
+  });
 }

@@ -11,18 +11,12 @@ const statePath = path.resolve(
 );
 
 let cachedRaw = null;
-let cachedMtimeMs = null;
 let cachedState = null;
 
 function loadState() {
   try {
-    const nextMtimeMs = statSync(statePath).mtimeMs;
-    if (cachedState && cachedMtimeMs === nextMtimeMs) {
-      return cachedState;
-    }
     const raw = readFileSync(statePath, "utf8");
     if (cachedState && cachedRaw === raw) {
-      cachedMtimeMs = nextMtimeMs;
       return cachedState;
     }
     const parsed = JSON.parse(raw);
@@ -35,7 +29,6 @@ function loadState() {
       return null;
     }
     cachedRaw = raw;
-    cachedMtimeMs = nextMtimeMs;
     cachedState = parsed;
     return parsed;
   } catch {
@@ -54,23 +47,28 @@ const plugin = {
       if (!state) {
         return;
       }
-      const slashIndex = state.selectedModelRef.indexOf("/");
-      if (slashIndex <= 0) {
-        return {
-          modelOverride: state.selectedModelRef,
-        };
+      if (state.selectedModelRef.trim().length === 0) {
+        return;
       }
+      const slashIndex = state.selectedModelRef.indexOf("/");
       const providerOverride = state.selectedModelRef.slice(0, slashIndex);
-      const modelOverride = state.selectedModelRef.slice(slashIndex + 1);
+      const modelOverride =
+        slashIndex > 0
+          ? state.selectedModelRef.slice(slashIndex + 1)
+          : state.selectedModelRef;
       return {
-        providerOverride,
+        ...(slashIndex > 0 ? { providerOverride } : {}),
         modelOverride,
       };
     });
 
     api.on("before_prompt_build", async () => {
       const state = loadState();
-      if (!state?.promptNotice) {
+      if (
+        !state ||
+        state.selectedModelRef.trim().length === 0 ||
+        state.promptNotice.trim().length === 0
+      ) {
         return;
       }
       return {

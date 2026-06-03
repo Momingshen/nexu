@@ -1,19 +1,27 @@
 import { execFile } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import path from "node:path";
 import {
   type Model,
+  type ModelProviderConfig,
+  type PersistedModelsConfig,
+  type ProviderRegistryEntryDto,
+  getBundledProviderModelIds,
+  getDefaultProviderBaseUrls,
+  getProviderRuntimePolicy,
+  isCustomProviderTemplate,
+  isSupportedByokProviderId,
+  listProviderRegistryEntries,
+  parseCustomProviderKey,
   selectPreferredModel,
   type verifyProviderBodySchema,
   type verifyProviderResponseSchema,
 } from "@nexu/shared";
 import type { z } from "zod";
 import type { ControllerEnv } from "../app/env.js";
-import { isSupportedByokProviderId } from "../lib/byok-providers.js";
 import { logger } from "../lib/logger.js";
 import { proxyFetch } from "../lib/proxy-fetch.js";
 import type { OpenClawProcessManager } from "../runtime/openclaw-process.js";
+import { getOpenClawCommandSpec } from "../runtime/slimclaw-runtime-resolution.js";
 import type { NexuConfigStore } from "../store/nexu-config-store.js";
 import type { OpenClawAuthService } from "./openclaw-auth-service.js";
 import type { OpenClawSyncService } from "./openclaw-sync-service.js";
@@ -88,7 +96,6 @@ const MINI_MAX_OAUTH_REQUEST_TIMEOUT_MS = 15000;
 const MINI_MAX_OAUTH_TOKEN_REQUEST_TIMEOUT_MS = 15000;
 const OPENCLAW_COMMAND_TIMEOUT_MS = 30000;
 const NEXU_OFFICIAL_PROVIDER_ID = "nexu";
-const OLLAMA_DEFAULT_BASE_URL = "http://127.0.0.1:11434";
 const OLLAMA_DUMMY_API_KEY = "ollama-local";
 
 function durationSecondsToMs(valueInSeconds: number): number {
@@ -142,20 +149,53 @@ function hasSameCloudModels(
   );
 }
 
-const PROVIDER_BASE_URLS: Record<string, string> = {
-  anthropic: "https://api.anthropic.com/v1",
-  openai: "https://api.openai.com/v1",
-  google: "https://generativelanguage.googleapis.com/v1beta/openai",
-  ollama: OLLAMA_DEFAULT_BASE_URL,
-  siliconflow: "https://api.siliconflow.cn/v1",
-  ppio: "https://api.ppinfra.com/v3/openai",
-  openrouter: "https://openrouter.ai/api/v1",
-  minimax: MINI_MAX_API_BASE_URL_GLOBAL,
-  kimi: "https://api.moonshot.cn/v1",
-  glm: "https://open.bigmodel.cn/api/paas/v4",
-  moonshot: "https://api.moonshot.cn/v1",
-  zai: "https://open.bigmodel.cn/api/paas/v4",
+type ProviderInventoryInput = {
+  providerKey: string;
+  providerId: string;
+  enabled: boolean;
+  apiKey: string | null;
+  models: string[];
+  baseUrl: string | null;
+  oauthRegion: "global" | "cn" | null;
+  auth: ModelProviderConfig["auth"] | undefined;
+  oauthProfileRef: string | null;
 };
+
+function resolveInventoryModelIds(
+  providerId: string,
+  models: string[],
+): string[] {
+  return models.length > 0 ? models : getBundledProviderModelIds(providerId);
+}
+
+function toProviderInventoryInput(
+  providers: PersistedModelsConfig["providers"],
+): ProviderInventoryInput[] {
+  return Object.entries(providers)
+    .map(([providerKey, provider]) => {
+      const customProvider = parseCustomProviderKey(providerKey);
+      const providerId = customProvider?.templateId ?? providerKey;
+      return {
+        providerKey,
+        providerId,
+        enabled: provider.enabled,
+        apiKey: typeof provider.apiKey === "string" ? provider.apiKey : null,
+        models: resolveInventoryModelIds(
+          providerId,
+          provider.models.map((model) => model.id),
+        ),
+        baseUrl: provider.baseUrl ?? null,
+        oauthRegion: provider.oauthRegion ?? null,
+        auth: provider.auth,
+        oauthProfileRef: provider.oauthProfileRef ?? null,
+      };
+    })
+    .filter(
+      (provider) =>
+        isSupportedByokProviderId(provider.providerId) ||
+        isCustomProviderTemplate(provider.providerId),
+    );
+}
 
 function buildProviderUrl(
   baseUrl: string | null | undefined,
@@ -170,6 +210,21 @@ function buildProviderUrl(
     ? pathSuffix
     : `/${pathSuffix}`;
   return `${normalizedBaseUrl}${normalizedPath}`;
+}
+
+function normalizeGoogleModelId(name: string | undefined): string {
+  if (typeof name !== "string") {
+    return "";
+  }
+
+  const trimmedName = name.trim();
+  if (trimmedName.length === 0) {
+    return "";
+  }
+
+  return trimmedName.startsWith("models/")
+    ? trimmedName.slice("models/".length)
+    : trimmedName;
 }
 
 function getMiniMaxBaseUrl(region: MiniMaxRegion): string {
@@ -206,97 +261,6 @@ function generatePkce(): {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function findWorkspaceRoot(startDir: string): string | null {
-  let currentDir = path.resolve(startDir);
-
-  for (let index = 0; index < 10; index += 1) {
-    if (existsSync(path.join(currentDir, "pnpm-workspace.yaml"))) {
-      return currentDir;
-    }
-
-    const parentDir = path.dirname(currentDir);
-    if (parentDir === currentDir) {
-      break;
-    }
-    currentDir = parentDir;
-  }
-
-  return null;
-}
-
-function getOpenClawCommandSpec(env: ControllerEnv): {
-  command: string;
-  argsPrefix: string[];
-  extraEnv: Record<string, string>;
-} {
-  const workspaceRoot =
-    process.env.NEXU_WORKSPACE_ROOT?.trim() || findWorkspaceRoot(process.cwd());
-  const runtimeEntryPath = workspaceRoot
-    ? path.join(
-        workspaceRoot,
-        "openclaw-runtime",
-        "node_modules",
-        "openclaw",
-        "openclaw.mjs",
-      )
-    : null;
-  const electronExec = process.env.OPENCLAW_ELECTRON_EXECUTABLE;
-  if (electronExec) {
-    if (runtimeEntryPath && existsSync(runtimeEntryPath)) {
-      return {
-        command: electronExec,
-        argsPrefix: [runtimeEntryPath],
-        extraEnv: { ELECTRON_RUN_AS_NODE: "1" },
-      };
-    }
-
-    const binDir = path.dirname(path.resolve(env.openclawBin));
-    const entry = path.resolve(
-      binDir,
-      "..",
-      "node_modules/openclaw/openclaw.mjs",
-    );
-    return {
-      command: electronExec,
-      argsPrefix: [entry],
-      extraEnv: { ELECTRON_RUN_AS_NODE: "1" },
-    };
-  }
-
-  if (path.isAbsolute(env.openclawBin) || env.openclawBin.includes(path.sep)) {
-    return {
-      command: env.openclawBin,
-      argsPrefix: [],
-      extraEnv: {},
-    };
-  }
-
-  if (workspaceRoot) {
-    if (runtimeEntryPath && existsSync(runtimeEntryPath)) {
-      return {
-        command: process.execPath,
-        argsPrefix: [runtimeEntryPath],
-        extraEnv: {},
-      };
-    }
-
-    const wrapperPath = path.join(workspaceRoot, "openclaw-wrapper");
-    if (existsSync(wrapperPath)) {
-      return {
-        command: wrapperPath,
-        argsPrefix: [],
-        extraEnv: {},
-      };
-    }
-  }
-
-  return {
-    command: env.openclawBin,
-    argsPrefix: [],
-    extraEnv: {},
-  };
 }
 
 // Providers that support OAuth login (no API key needed).
@@ -346,12 +310,10 @@ export class ModelProviderService {
   async listModels() {
     await this.refreshMiniMaxOauthModelsIfNeeded();
 
-    const config = await this.configStore.getConfig();
     const desktopCloud = await this.configStore.getDesktopCloudStatus();
-    const providers = config.providers.filter(
-      (provider) =>
-        provider.enabled && isSupportedByokProviderId(provider.providerId),
-    );
+    const providers = toProviderInventoryInput(
+      (await this.configStore.getModelProviderConfigDocument()).providers,
+    ).filter((provider) => provider.enabled);
     const { cloudModels, byokModels } = await this.getAvailableModels(
       providers,
       desktopCloud,
@@ -364,9 +326,11 @@ export class ModelProviderService {
 
   private async getAvailableModels(
     providers: ReadonlyArray<{
+      providerKey: string;
       providerId: string;
       apiKey: string | null;
       models: string[];
+      auth: ModelProviderConfig["auth"] | undefined;
     }>,
     desktopCloud: {
       models?: Array<{ id: string; name?: string | null }> | null;
@@ -387,9 +351,9 @@ export class ModelProviderService {
       .filter((provider) => !expiredOAuthProviderIds.has(provider.providerId))
       .flatMap((provider) =>
         provider.models.map((modelId) => ({
-          id: `${provider.providerId}/${modelId}`,
+          id: `${provider.providerKey}/${modelId}`,
           name: modelId,
-          provider: provider.providerId,
+          provider: provider.providerKey,
         })),
       );
 
@@ -400,13 +364,21 @@ export class ModelProviderService {
    * Returns provider IDs that use OAuth (no API key) and whose token is expired.
    */
   private async getExpiredOAuthProviderIds(
-    providers: ReadonlyArray<{ providerId: string; apiKey: string | null }>,
+    providers: ReadonlyArray<{
+      providerId: string;
+      apiKey: string | null;
+      auth: ModelProviderConfig["auth"] | undefined;
+    }>,
   ): Promise<Set<string>> {
     if (!this.openclawAuthService) return new Set();
 
     const expired = new Set<string>();
     for (const provider of providers) {
-      if (provider.apiKey || !OAUTH_PROVIDER_IDS.has(provider.providerId)) {
+      if (
+        provider.apiKey ||
+        provider.auth !== "oauth" ||
+        !OAUTH_PROVIDER_IDS.has(provider.providerId)
+      ) {
         continue;
       }
       const status = await this.openclawAuthService.getProviderOAuthStatus(
@@ -422,12 +394,38 @@ export class ModelProviderService {
   async listProviders() {
     await this.refreshMiniMaxOauthModelsIfNeeded();
 
-    const providers = await this.configStore.listProviders();
+    const providers = toProviderInventoryInput(
+      (await this.configStore.getModelProviderConfigDocument()).providers,
+    );
     return {
-      providers: providers.filter((provider) =>
-        isSupportedByokProviderId(provider.providerId),
-      ),
+      providers,
     };
+  }
+
+  listProviderRegistry(): ProviderRegistryEntryDto[] {
+    return listProviderRegistryEntries().map((entry) => ({
+      ...entry,
+      aliases: [...entry.aliases],
+      authModes: [...entry.authModes],
+      defaultBaseUrls: [...entry.defaultBaseUrls],
+      ...(entry.defaultHeaders
+        ? { defaultHeaders: { ...entry.defaultHeaders } }
+        : {}),
+    }));
+  }
+
+  async getModelProviderConfigDocument(): Promise<PersistedModelsConfig> {
+    return this.configStore.getModelProviderConfigDocument();
+  }
+
+  async setModelProviderConfigDocument(
+    config: PersistedModelsConfig,
+  ): Promise<PersistedModelsConfig> {
+    const next = await this.configStore.setModelProviderConfigDocument(config);
+    await this.ensureValidDefaultModel();
+    await this.openclawSyncService.syncAll();
+    await this.restartRuntime("model_provider_config_changed");
+    return next;
   }
 
   async refreshNexuOfficialModels(): Promise<{
@@ -452,6 +450,7 @@ export class ModelProviderService {
     if (changed) {
       await this.ensureValidDefaultModel();
       await this.openclawSyncService.syncAll();
+      await this.restartRuntime("nexu_official_models_refreshed");
       logger.info(
         {
           provider: NEXU_OFFICIAL_PROVIDER_ID,
@@ -490,19 +489,19 @@ export class ModelProviderService {
   }
 
   async deleteProvider(providerId: string) {
-    return this.configStore.deleteProvider(providerId);
+    const result = await this.configStore.deleteProvider(providerId);
+    await this.ensureValidDefaultModel();
+    await this.openclawSyncService.syncAll();
+    await this.restartRuntime("provider_deleted");
+    return result;
   }
 
   async getInventoryStatus(): Promise<ModelInventoryStatus> {
     const desktopCloud =
       await this.configStore.getDesktopCloudInventoryStatus();
-    const config = await this.configStore.getConfig();
-    const hasByokInventory = config.providers
-      .filter(
-        (provider) =>
-          provider.enabled && isSupportedByokProviderId(provider.providerId),
-      )
-      .some((provider) => provider.models.length > 0);
+    const hasByokInventory = toProviderInventoryInput(
+      (await this.configStore.getModelProviderConfigDocument()).providers,
+    ).some((provider) => provider.enabled && provider.models.length > 0);
 
     return {
       hasKnownInventory: desktopCloud.hasCloudInventory || hasByokInventory,
@@ -561,21 +560,47 @@ export class ModelProviderService {
     providerId: string,
     input: VerifyProviderBody,
   ): Promise<VerifyProviderResponse> {
-    if (!isSupportedByokProviderId(providerId)) {
+    return this.verifyProviderKey(providerId, input);
+  }
+
+  async verifyProviderInstance(
+    instanceKey: string,
+    input: VerifyProviderBody,
+  ): Promise<VerifyProviderResponse> {
+    return this.verifyProviderKey(instanceKey, input);
+  }
+
+  private async verifyProviderKey(
+    providerKey: string,
+    input: VerifyProviderBody,
+  ): Promise<VerifyProviderResponse> {
+    const customProvider = parseCustomProviderKey(providerKey);
+    const providerId = customProvider?.templateId ?? providerKey;
+    if (
+      !isSupportedByokProviderId(providerId) &&
+      !isCustomProviderTemplate(providerId)
+    ) {
       return { valid: false, error: "Unsupported provider" };
     }
 
-    const storedProvider = await this.configStore.getProvider(providerId);
+    const storedProvider = await this.configStore.getProvider(providerKey);
+    const runtimePolicy = getProviderRuntimePolicy(providerId);
+    if (!runtimePolicy) {
+      return { valid: false, error: "Unsupported provider" };
+    }
+
     const apiKey =
       input.apiKey !== undefined
         ? input.apiKey.trim()
         : storedProvider?.apiKey || "";
+    const defaultBaseUrl =
+      providerId === "minimax" && storedProvider?.oauthRegion === "cn"
+        ? MINI_MAX_API_BASE_URL_CN
+        : (getDefaultProviderBaseUrls(providerId)[0] ?? null);
+    const resolvedBaseUrl =
+      input.baseUrl ?? storedProvider?.baseUrl ?? defaultBaseUrl;
 
-    const verifyUrl =
-      buildProviderUrl(
-        input.baseUrl ?? PROVIDER_BASE_URLS[providerId] ?? null,
-        "/models",
-      ) ?? "";
+    const verifyUrl = buildProviderUrl(resolvedBaseUrl, "/models") ?? "";
     if (verifyUrl.length === 0) {
       return { valid: false, error: "Unknown provider and no baseUrl given" };
     }
@@ -588,10 +613,7 @@ export class ModelProviderService {
         }
 
         const response = await proxyFetch(
-          buildProviderUrl(
-            input.baseUrl ?? PROVIDER_BASE_URLS[providerId] ?? null,
-            "/api/tags",
-          ) ?? verifyUrl,
+          buildProviderUrl(resolvedBaseUrl, "/api/tags") ?? verifyUrl,
           {
             headers: Object.keys(headers).length > 0 ? headers : undefined,
             timeoutMs: 10000,
@@ -618,8 +640,34 @@ export class ModelProviderService {
         return { valid: false, error: "API key required" };
       }
 
+      if (runtimePolicy.apiKind === "google-generative-ai") {
+        const response = await proxyFetch(verifyUrl, {
+          headers: {
+            "x-goog-api-key": apiKey,
+          },
+          timeoutMs: 10000,
+        });
+
+        if (!response.ok) {
+          return { valid: false, error: `HTTP ${response.status}` };
+        }
+
+        const payload = (await response.json()) as {
+          models?: Array<{ name?: string }>;
+        };
+
+        return {
+          valid: true,
+          models: Array.isArray(payload.models)
+            ? payload.models
+                .map((item) => normalizeGoogleModelId(item.name))
+                .filter((item) => item.length > 0)
+            : [],
+        };
+      }
+
       const headers: Record<string, string> =
-        providerId === "anthropic"
+        runtimePolicy.apiKind === "anthropic-messages"
           ? {
               "x-api-key": apiKey,
               "anthropic-version": "2023-06-01",
@@ -634,12 +682,28 @@ export class ModelProviderService {
         if (providerId === "minimax" && response.status === 404) {
           return { valid: true, models: MINI_MAX_API_MODELS };
         }
+        if (providerId === "xiaomi" && response.status === 404) {
+          return {
+            valid: true,
+            models: getBundledProviderModelIds(providerId),
+          };
+        }
         return { valid: false, error: `HTTP ${response.status}` };
       }
 
       const payload = (await response.json()) as {
         data?: Array<{ id: string }>;
       };
+      if (providerId === "xiaomi") {
+        return {
+          valid: true,
+          models:
+            Array.isArray(payload.data) && payload.data.length > 0
+              ? payload.data.map((item) => item.id)
+              : getBundledProviderModelIds(providerId),
+        };
+      }
+
       return {
         valid: true,
         models: Array.isArray(payload.data)
@@ -659,15 +723,19 @@ export class ModelProviderService {
   async getMiniMaxOauthStatus(): Promise<MiniMaxOauthStatus> {
     await this.refreshMiniMaxOauthModelsIfNeeded();
 
-    const provider = await this.configStore.getProvider("minimax");
+    const modelProviderConfig =
+      await this.configStore.getModelProviderConfigDocument();
+    const canonicalProvider = modelProviderConfig.providers.minimax;
     const connected =
-      provider?.authMode === "oauth" && provider.hasOauthCredential === true;
+      canonicalProvider?.auth === "oauth" &&
+      (typeof canonicalProvider.oauthProfileRef === "string" ||
+        typeof canonicalProvider.metadata === "object");
     const inProgress = connected ? false : this.miniMaxOauthState.inProgress;
 
     this.miniMaxOauthState = {
       connected,
       inProgress,
-      region: provider?.oauthRegion ?? this.miniMaxOauthState.region,
+      region: canonicalProvider?.oauthRegion ?? this.miniMaxOauthState.region,
       error: this.miniMaxOauthState.error,
     };
 
@@ -765,10 +833,9 @@ export class ModelProviderService {
     const currentId = config.runtime.defaultModelId;
     const desktopCloud = await this.configStore.getDesktopCloudStatus();
     const inventory = await this.getInventoryStatus();
-    const providers = config.providers.filter(
-      (provider) =>
-        provider.enabled && isSupportedByokProviderId(provider.providerId),
-    );
+    const providers = toProviderInventoryInput(
+      (await this.configStore.getModelProviderConfigDocument()).providers,
+    ).filter((provider) => provider.enabled);
 
     if (!inventory.hasKnownInventory) {
       return "unknown";
@@ -790,15 +857,16 @@ export class ModelProviderService {
   }
 
   private async refreshMiniMaxOauthModelsIfNeeded(): Promise<void> {
-    const provider = await this.configStore.getProvider("minimax");
+    const provider = (await this.configStore.getModelProviderConfigDocument())
+      .providers.minimax;
     if (
-      provider?.authMode !== "oauth" ||
-      provider.hasOauthCredential !== true
+      provider?.auth !== "oauth" ||
+      typeof provider.oauthProfileRef !== "string"
     ) {
       return;
     }
 
-    const currentModels = provider.models ?? [];
+    const currentModels = provider.models.map((model) => model.id);
 
     if (hasSameModels(currentModels, MINI_MAX_OAUTH_MODELS)) {
       return;
@@ -1065,9 +1133,13 @@ export class ModelProviderService {
     });
   }
 
-  private async restartRuntime(): Promise<void> {
-    await this.openclawProcess.stop();
-    this.openclawProcess.enableAutoRestart();
-    this.openclawProcess.start();
+  private async restartRuntime(reason = "provider_changed"): Promise<void> {
+    // Provider-level changes are not hot-reload-safe: OpenClaw caches its
+    // provider/model registry once at boot. Without a restart, deleting or
+    // disabling a provider leaves stale entries resident and the runtime
+    // keeps trying to resolve against removed providers (e.g. "No API key
+    // for openai-codex" after the user disabled all BYOK providers).
+    // `restart()` handles both dev-managed and launchd-managed modes.
+    await this.openclawProcess.restart(reason);
   }
 }

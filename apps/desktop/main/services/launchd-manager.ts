@@ -26,15 +26,14 @@ export class LaunchdManager {
   private readonly plistDir: string;
   private readonly uid: number;
   private readonly domain: string;
+  private readonly log: (message: string) => void;
 
-  constructor(opts?: { plistDir?: string }) {
-    if (process.platform !== "darwin") {
-      throw new Error("LaunchdManager only works on macOS");
-    }
+  constructor(opts?: { plistDir?: string; log?: (message: string) => void }) {
     this.plistDir =
       opts?.plistDir ?? path.join(os.homedir(), "Library/LaunchAgents");
     this.uid = os.userInfo().uid;
     this.domain = `gui/${this.uid}`;
+    this.log = opts?.log ?? console.log;
   }
 
   /**
@@ -45,6 +44,20 @@ export class LaunchdManager {
   async installService(label: string, plistContent: string): Promise<void> {
     const plistPath = path.join(this.plistDir, `${label}.plist`);
     await fs.mkdir(this.plistDir, { recursive: true });
+
+    // Always clear any persistent "disabled" override left by legacy
+    // `launchctl unload -w`. `launchctl enable` is idempotent (no-op when
+    // not disabled), so this is safe to run on every boot. Without this,
+    // upgrades that leave the plist unchanged hit the early-return below
+    // and leak the disabled flag, causing OpenClaw's SIGUSR1 self-restart
+    // to fail with "Bootstrap failed: 5".
+    const disabled = await this.isServiceDisabled(label);
+    if (disabled) {
+      this.log(
+        `installService: ${label} has disabled override, clearing with launchctl enable`,
+      );
+      await this.enableService(label);
+    }
 
     const isRegistered = await this.isServiceRegistered(label);
 
@@ -75,20 +88,37 @@ export class LaunchdManager {
 
     await fs.writeFile(plistPath, plistContent, "utf8");
 
-    try {
-      const { stdout, stderr } = await execFileAsync("launchctl", [
-        "bootstrap",
-        this.domain,
-        plistPath,
-      ]);
-      if (stdout) console.log(`Bootstrap ${label}:`, stdout);
-      if (stderr) console.warn(`Bootstrap ${label} warnings:`, stderr);
-    } catch (err) {
-      console.error(
-        `Failed to bootstrap ${label}:`,
-        err instanceof Error ? err.message : err,
-      );
-      throw err;
+    // Bootstrap with retry: "Input/output error" (code 5) means launchd
+    // has stale state for this label. Bootout to clear it, then retry.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const { stdout, stderr } = await execFileAsync("launchctl", [
+          "bootstrap",
+          this.domain,
+          plistPath,
+        ]);
+        if (stdout) console.log(`Bootstrap ${label}:`, stdout);
+        if (stderr) console.warn(`Bootstrap ${label} warnings:`, stderr);
+        return;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (attempt === 0 && /Input\/output error|error: 5/.test(message)) {
+          console.warn(
+            `Bootstrap ${label} hit stale state, clearing and retrying`,
+          );
+          try {
+            await this.bootoutService(label);
+          } catch {
+            // may already be unregistered
+          }
+          // Also clear disabled override in case that's the cause
+          await this.enableService(label).catch(() => {});
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        console.error(`Failed to bootstrap ${label}:`, message);
+        throw err;
+      }
     }
   }
 
@@ -122,15 +152,7 @@ export class LaunchdManager {
    * Uninstall a launchd service (bootout + remove plist).
    */
   async uninstallService(label: string): Promise<void> {
-    try {
-      await execFileAsync("launchctl", ["bootout", `${this.domain}/${label}`]);
-    } catch (err) {
-      // Service may not be running, log but don't throw
-      console.warn(
-        `Failed to bootout ${label}:`,
-        err instanceof Error ? err.message : err,
-      );
-    }
+    await this.bootoutAndWaitForExit(label);
     try {
       const plistPath = path.join(this.plistDir, `${label}.plist`);
       await fs.unlink(plistPath);
@@ -253,6 +275,45 @@ export class LaunchdManager {
       }
     }
     return env;
+  }
+
+  /**
+   * Check if a service has a persistent "disabled" override in launchd's database.
+   * This happens when someone runs `launchctl unload -w` which writes a sticky
+   * disabled flag, causing all subsequent `launchctl bootstrap` calls to fail
+   * with error 5 (Input/output error).
+   */
+  async isServiceDisabled(label: string): Promise<boolean> {
+    try {
+      const { stdout } = await execFileAsync("launchctl", [
+        "print-disabled",
+        this.domain,
+      ]);
+      // Output format: "io.nexu.controller" => true
+      const pattern = new RegExp(
+        `"${label.replace(/\./g, "\\.")}"\\s*=>\\s*true`,
+      );
+      return pattern.test(stdout);
+    } catch {
+      // Command failed or label not found — assume not disabled
+      return false;
+    }
+  }
+
+  /**
+   * Clear a persistent "disabled" override for a service.
+   * Runs `launchctl enable gui/<uid>/<label>` so that subsequent bootstrap
+   * calls succeed. Tolerates errors (the label may not be in the disabled database).
+   */
+  async enableService(label: string): Promise<void> {
+    try {
+      await execFileAsync("launchctl", ["enable", `${this.domain}/${label}`]);
+      this.log(`enableService: cleared disabled override for ${label}`);
+    } catch (err) {
+      this.log(
+        `enableService: failed to clear disabled override for ${label}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /**

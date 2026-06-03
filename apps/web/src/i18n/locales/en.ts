@@ -13,11 +13,13 @@ const en = {
   // ── Welcome ──
   "welcome.pageTitle": "Welcome to nexu",
   "welcome.mobileLabel": "Client",
-  "welcome.title": "Choose how to start",
+  "welcome.title": "Connect nexu in one step",
+  "welcome.subtitle":
+    "Sign in with your nexu account to unlock hosted premium models in your local workspace, then keep earning extra usage through rewards.",
   "welcome.option.login.title": "Use your nexu account",
   "welcome.option.login.badge": "Recommended",
   "welcome.option.login.description":
-    "Complete browser-based sign in and instantly access nexu hosted premium models and the full product experience.",
+    "Complete browser-based sign in to unlock nexu hosted premium models, rewards, and the full workspace experience without manual model setup.",
   "welcome.option.login.meta.1": "Google / GitHub / Email",
   "welcome.option.login.meta.2": "Browser OAuth",
   "welcome.option.login.meta.3": "Best for most users",
@@ -29,6 +31,9 @@ const en = {
   "welcome.option.byok.meta.1": "No sign up required",
   "welcome.option.byok.meta.2": "Local configuration",
   "welcome.option.byok.meta.3": "Best for advanced users",
+  "welcome.byokLink": "Prefer BYOK? Open provider settings instead",
+  "welcome.rewardsHint":
+    "Rewards live inside the workspace after sign-in: 11 task slots across daily check-ins, open source, and social sharing.",
   "welcome.back": "Back to options",
   "welcome.byok.title": "Connect your models",
   "welcome.byok.subtitle":
@@ -106,6 +111,7 @@ const en = {
   "title.claim": "Claim · nexu",
   "title.home": "Home · nexu",
   "title.integrations": "Integrations · nexu",
+  "title.rewards": "Rewards · nexu",
   "title.skills": "Skills · nexu",
   "title.settings": "Settings · nexu",
   "title.linkFeishu": "Link Feishu · nexu",
@@ -115,6 +121,7 @@ const en = {
   // ── Workspace Layout ──
   "layout.brand": "Your digital coworker",
   "layout.nav.home": "Home",
+  "layout.nav.rewards": "Rewards",
   "layout.nav.deployments": "Deployments",
   "layout.nav.skills": "Skills",
   "layout.nav.settings": "Settings",
@@ -128,6 +135,7 @@ const en = {
   "layout.collapseSidebar": "Collapse sidebar",
   "layout.update.available": "{{version}} available",
   "layout.update.downloading": "Downloading update...",
+  "layout.update.installing": "Preparing to install and restart...",
   "layout.update.readyToInstall": "Update ready to install",
   "layout.update.download": "Download",
   "layout.update.install": "Restart & Install",
@@ -135,10 +143,31 @@ const en = {
   "layout.update.badge": "Update",
   "layout.mobile.home": "Home",
   "layout.mobile.homeSubtitle": "Welcome to nexu",
+  "layout.mobile.rewards": "Rewards",
+  "layout.mobile.rewardsSubtitle": "Earn extra usage credits",
   "layout.mobile.deployments": "Deployments",
   "layout.mobile.deploymentsSubtitle": "All deployment records",
   "layout.mobile.skills": "Skills",
   "layout.mobile.skillsSubtitle": "Browse AI capabilities",
+  "layout.sidebar.loginTitle": "Sign in with nexu",
+  "layout.sidebar.loginSubtitle": "Use official credits",
+  "layout.sidebar.loginPending": "Waiting for browser sign-in",
+  "layout.sidebar.rewardsTitle": "Share nexu, earn extra credits",
+  "layout.sidebar.rewardsSubtitle": "Daily, open-source, and social tasks",
+  "layout.sidebar.progressLabel": "Tasks claimed",
+  "layout.sidebar.balanceLabel": "Balance",
+  "layout.sidebar.balanceUnit": "credits",
+  "layout.sidebar.balancePlaceholder": "Balance syncing…",
+  "layout.sidebar.rewardsCta": "Open",
+  "layout.sidebar.balancePopup.total": "Total credits",
+  "layout.sidebar.balancePopup.recharged": "Plan credits",
+  "layout.sidebar.balancePopup.rechargedTooltip":
+    "Current credits remaining from your subscription plan.",
+  "layout.sidebar.balancePopup.earned": "Gifted credits",
+  "layout.sidebar.balancePopup.earnedTooltip":
+    "Current credits remaining from signup rewards and reward activities.",
+  "layout.sidebar.balancePopup.consumed": "Consumed",
+  "layout.sidebar.balancePopup.viewDetail": "View details",
   "layout.mobile.settings": "Settings",
   "layout.mobile.settingsSubtitle": "Manage AI model providers",
   "layout.mobile.conversations": "Conversations",
@@ -149,6 +178,9 @@ const en = {
   "layout.empty.step1": "Connect a platform",
   "layout.empty.step2": "Mention @nexu",
   "layout.empty.step3": "Conversations appear",
+  "layout.loginCta": "Sign in",
+  "layout.credits.label": "Credits",
+  "layout.credits.earned": "earned",
 
   // ── Home Page ──
   "home.running": "Running",
@@ -168,6 +200,7 @@ const en = {
   "home.minutesAgo": "Active {{count}} min ago",
   "home.hoursAgo": "Active {{count}} hr ago",
   "home.daysAgo": "Active {{count}} days ago",
+  "home.chat": "Chat",
   "home.feishu": "Feishu",
   "home.channel.feishu": "Feishu / Feishu",
   "home.channel.slack": "Slack",
@@ -175,6 +208,9 @@ const en = {
   "home.channel.wechat": "WeChat",
   "home.channel.telegram": "Telegram",
   "home.channel.whatsapp": "WhatsApp",
+  "home.channel.dingtalk": "DingTalk",
+  "home.channel.qqbot": "QQ",
+  "home.channel.wecom": "WeCom",
   "home.channel.addBot": "Add nexu Bot",
   "home.tab.channels": "Channels",
   "home.tab.models": "Models & Key",
@@ -218,12 +254,180 @@ const en = {
   "home.viewConversationsDesc": "Threads and channel activity",
   "home.manageSkills": "Manage skills",
   "home.manageSkillsDesc": "Tools and capabilities",
+  "home.rewardsTeaser.eyebrow": "Rewards",
+  "home.rewardsTeaser.title": "Turn setup moments into extra usage",
+  "home.rewardsTeaser.description":
+    "Daily check-ins, open-source support, and social shares now roll into one rewards center inside the workspace.",
+  "home.rewardsTeaser.summaryLabel": "Unlocked tasks",
+  "home.rewardsTeaser.summaryValue": "+{{earned}} credits earned",
+  "home.rewardsTeaser.footer":
+    "Facebook and WhatsApp now sit inside the merged social rewards group.",
+  "home.rewardsTeaser.cta": "View rewards",
   "home.starGithub": "Star on GitHub",
   "home.starNexu": "Star Nexu on GitHub",
   "home.starCta":
     "Help us grow the open-source community — your star makes a difference",
+  "home.seedance.promo.title": "Seedance 2.0 Experience Key",
+  "home.seedance.promo.badge": "Limited time",
+  "home.seedance.promo.subtitle":
+    "nexu now supports Seedance 2.0. Star the repo, join the Feishu group, fill the form, and we'll send you a Key.",
+  "home.seedance.promo.dismiss": "Dismiss promo",
+  "home.seedance.modal.title": "Get your Seedance 2.0 Experience Key",
+  "home.seedance.modal.lead":
+    "Two quick steps: Star the repo, then join the Feishu group to apply.",
+  "home.seedance.modal.step1.title": "Step 1: Star on GitHub & screenshot",
+  "home.seedance.modal.step1.copy":
+    "Star the nexu repo on GitHub, then take a screenshot of the page.",
+  "home.seedance.modal.step1.cta": "Star on GitHub",
+  "home.seedance.modal.step1.done": "Starred",
+  "home.seedance.modal.step1.nextCta": "I have the screenshot, join the group",
+  "home.seedance.modal.step2.title":
+    "Step 2: Join Feishu group & fill the form",
+  "home.seedance.modal.step2.copy":
+    "After joining the group and submitting the form, we'll reach out and send you a Key. Enter it in nexu Bot to start.",
+  "home.seedance.modal.step2.cta": "Join Feishu group",
+  "home.seedance.modal.step2.tutorial":
+    "Tutorial: How to use Seedance 2.0 in nexu Bot",
+  "home.seedance.modal.step2.done": "Got it",
   "home.recentActivity": "Recent Activity",
   "home.noRecentActivity": "No recent conversations",
+
+  // ── Rewards ──
+  "rewards.title": "Share nexu, earn extra credits",
+  "rewards.desc":
+    "Share nexu with your communities and complete tasks to earn extra credits.",
+  "rewards.progressLabel": "Completed",
+  "rewards.earnedLabel": "Earned",
+  "rewards.totalCredits": "Reward credits {{n}}",
+  "rewards.taskProgress": "Weekly tasks {{a}} / {{b}}",
+  "rewards.group.daily": "Daily",
+  "rewards.group.opensource": "Open Source",
+  "rewards.group.social": "Social & messaging",
+  "rewards.tab.web": "Web",
+  "rewards.tab.mobile": "Mobile",
+  "rewards.mobileQrHint": "Use your camera to invite from mobile",
+  "rewards.mobileQrDesc":
+    "Use your phone camera to scan the QR code, then invite from mobile to complete the task and earn credits",
+  "rewards.cloudBalance": "Cloud Balance",
+  "rewards.totalEarned": "Total earned",
+  "rewards.totalUsed": "Total used",
+  "rewards.loginTitle": "Sign in to unlock hosted models and reward claims",
+  "rewards.loginBody":
+    "Rewards are available to everyone for browsing, but hosted model usage and reward claiming are designed around your nexu cloud session.",
+  "rewards.loginCta": "Sign in with nexu",
+  "rewards.modelHintTitle":
+    "Switch back to nexu official models to use reward credits",
+  "rewards.modelHintBody":
+    "Your claims are kept, but reward credits are meant for the managed model experience. Switch providers any time in model settings.",
+  "rewards.modelHintCta": "Open model settings",
+  "rewards.claimSuccess": "Reward claimed",
+  "rewards.claimAlreadyDone": "Reward already claimed for this period",
+  "rewards.claimFailed": "Failed to claim reward",
+  "rewards.loginRequired": "Please sign in to your nexu account first",
+  "rewards.githubUnavailable": "Unavailable",
+  "rewards.downloadFailed": "Failed to download share card",
+  "rewards.githubSessionFailed":
+    "Failed to start GitHub star verification. Please try again.",
+  "rewards.githubVerifying":
+    "Verifying your GitHub star. This may take a few seconds...",
+  "rewards.proofUrlLabel": "Paste your share URL",
+  "rewards.proofUrlPlaceholder":
+    "Paste the public link you posted on that platform",
+  "rewards.proofUrlHint":
+    "Only public URLs that match the platform format can be claimed.",
+  "rewards.proofUrlInvalid":
+    "The URL does not match the current platform format.",
+  "rewards.proofUrlReopen": "Reopen share page",
+  "rewards.proofUrlLoginGuidance":
+    'If the browser landed on the platform\'s homepage, log in first, then click "Reopen share page" to jump to the pre-filled post page.',
+  "rewards.progress": "{{earned}} / {{total}} completed",
+  "rewards.card.cycle":
+    "Available per weekly cycle, excluding daily repeat claims",
+  "rewards.card.weekly": "One-time plus weekly shares",
+  "rewards.card.localState": "Controller-backed status",
+  "rewards.card.localStateHint":
+    "Claims now come from the desktop controller routes and stay idempotent across app restarts.",
+  "budget.viral.title": "Share nexu, earn extra credits",
+  "budget.viral.loginFirst": "Log in for free AI models",
+  "budget.viral.desc": "Help spread the word, get rewarded.",
+  "budget.viral.rules": "View reward rules →",
+  "budget.viral.summary":
+    "{{claimed}}/{{total}} completed · {{earned}} credits earned",
+  "budget.viral.viewAll": "View all rewards →",
+  "budget.cta.go": "Go",
+  "budget.cta.share": "Share",
+  "budget.cta.download": "Save image",
+  "budget.cta.checkin": "Check in",
+  "budget.cta.done": "+${n} credits earned",
+  "budget.confirm.title": "Confirm: {channel}",
+  "budget.confirm.desc":
+    "After you complete the action, come back and confirm to receive +${n} credits.",
+  "budget.confirm.screenshotDesc":
+    "Share first on the target platform, then come back and confirm to receive +${n} credits.",
+  "budget.confirm.imageDesc":
+    "After you complete the share, come back and confirm to receive +${n} credits.",
+  "budget.confirm.downloadImage": "Download share card",
+  "budget.confirm.done": "I've done it",
+  "budget.confirm.cancel": "Not yet",
+  "budget.confirm.checkinDesc":
+    "Confirm today's check-in to add +${n} credits to your reward balance. This can be claimed once per day.",
+  "budget.confirm.checkingTitle": "Checking task completion",
+  "budget.confirm.checkingDesc":
+    "Please wait while we confirm the task status for you.",
+  "budget.confirm.checkingImageDesc":
+    "Please wait while we confirm the share-card submission flow.",
+  "budget.confirm.checkingCheckinDesc":
+    "Please wait while we confirm today's check-in status.",
+  "budget.confirm.checking": "Checking...",
+  "budget.confirm.claimingTitle": "Claiming reward",
+  "budget.confirm.claimingDesc":
+    "Please wait while the reward credits sync to your account.",
+  "budget.confirm.claiming": "Claiming...",
+  "budget.banner.warningTitle": "Credits running low",
+  "budget.banner.depletedTitle": "Credits depleted",
+  "budget.banner.warningHeadline":
+    "Hosted credits are running low. Take one of the actions below to avoid interruptions.",
+  "budget.banner.depletedHeadline":
+    "Hosted credits are used up for now (reset tomorrow). Take one of the actions below to keep going.",
+  "budget.banner.description":
+    "Complete tasks to earn more credits, or use your own API key (BYOK) to continue.",
+  "budget.banner.warningDescription":
+    "Hosted credits are running low. Claim more task rewards or switch to your own API key to keep tasks running.",
+  "budget.banner.depletedDescription":
+    "Hosted credits are fully used up (reset tomorrow). Claim task rewards or switch to your own API key to continue.",
+  "budget.banner.actionsLabel": "Actions",
+  "budget.banner.apiKey": "Use API key",
+  "budget.banner.upgrade": "Upgrade plan",
+  "budget.banner.earnCredits": "Earn credits",
+  "budget.banner.byok": "Use your API key",
+  "budget.autoFallback.toast":
+    "Cloud credits depleted — automatically switched to your API key to keep things running.",
+  "budget.autoFallback.failed":
+    "Cloud credits are depleted and auto-switch to BYOK failed. Add your API key or earn more credits to continue.",
+  "rewards.action.claimed": "Claimed",
+  "rewards.action.checkIn": "Check in",
+  "rewards.action.download": "Download",
+  "rewards.action.share": "Share",
+  "rewards.action.open": "Open",
+  "reward.daily_checkin.name": "Daily check-in",
+  "reward.daily_checkin.desc": "Once per day",
+  "reward.daily_checkin.autoGrantedDesc":
+    "Daily reward is granted automatically. No manual claim needed.",
+  "reward.github_star.name": "Star us",
+  "reward.github_star.desc": "One-time reward",
+  "reward.x_share.name": "Share on X",
+  "reward.x_share.desc": "Once per week",
+  "reward.reddit.name": "Post on Reddit",
+  "reward.reddit.desc": "Once per week",
+  "reward.mobile_share.name": "Invite from mobile",
+  "reward.mobile_share.desc":
+    "Use your phone camera to scan the QR code and invite from mobile to earn credits",
+  "reward.lingying.name": "Post on LinkedIn",
+  "reward.lingying.desc": "Once per week",
+  "reward.facebook.name": "Share on Facebook",
+  "reward.facebook.desc": "Once per week",
+  "reward.whatsapp.name": "Share on WhatsApp",
+  "reward.whatsapp.desc": "Once per week",
 
   // ── Models Page ──
   "models.pageTitle": "Settings",
@@ -238,11 +442,35 @@ const en = {
   "settings.general.fullNameHint":
     "Shown in the workspace sidebar and account surfaces",
   "settings.general.email": "Email",
-  "settings.general.emailHint": "Managed by your current sign-in method",
+  "settings.general.emailHint":
+    "Settings sync is on. Premium models available with your Nexu account.",
+  "settings.general.loggedOut": "Not signed in",
+  "settings.general.loggedOutHint":
+    "Sign in to sync settings and use premium models.",
+  "settings.general.goLogin": "Go to sign in",
+  "settings.general.logoutConfirmTitle": "Log out of your nexu account?",
+  "settings.general.logoutConfirmDescription":
+    "This will disconnect your current nexu account from this desktop workspace.",
   "settings.general.preferences": "Preferences",
   "settings.general.language": "Language",
-  "settings.general.languageHint":
-    "Stored locally for this browser or desktop client",
+  "settings.general.languageHint": "Choose your interface language",
+  "settings.section.desktop": "Application behavior",
+  "settings.section.data": "Data & Privacy",
+  "settings.desktop.launchAtLogin": "Launch at startup",
+  "settings.desktop.launchAtLoginHint":
+    "Automatically open Nexu when your computer starts.",
+  "settings.desktop.showInDock": "Show in Dock",
+  "settings.desktop.showInDockHint":
+    "Show nexu in your Mac Dock for quick access.",
+  "settings.desktop.showInTaskbar": "Show in taskbar",
+  "settings.desktop.showInTaskbarHint":
+    "Show nexu in the taskbar; when off, it stays in the system tray only",
+  "settings.desktop.updateFailed": "Failed to update desktop setting",
+  "settings.data.analytics": "Usage analytics",
+  "settings.data.analyticsHint": "Help improve nexu with anonymous usage data",
+  "settings.data.crashReports": "Crash reports",
+  "settings.data.crashReportsHint":
+    "Send crash reports automatically to help fix bugs",
   "settings.general.saveTitle": "Save changes",
   "settings.general.saveHint": "Profile changes are applied after save",
   "settings.general.save": "Save",
@@ -259,6 +487,28 @@ const en = {
   "settings.general.githubStarredBody":
     "You are helping shape the desktop and workspace experience.",
   "settings.general.githubStarredBadge": "Starred",
+  "settings.section.profile": "Profile",
+  "settings.section.updates": "Updates",
+  "settings.section.about": "About",
+  "settings.updates.version": "Version",
+  "settings.updates.checkNow": "Check now",
+  "settings.updates.checking": "Checking...",
+  "settings.updates.retry": "Check again",
+  "settings.updates.idleHint":
+    "Check for updates and install the latest desktop build.",
+  "settings.updates.checkingHint": "Looking for a newer version...",
+  "settings.updates.downloading": "Downloading {{percent}}%",
+  "settings.updates.downloadingHint": "Downloading update: {{percent}}%",
+  "settings.updates.error": "Unable to check for updates right now.",
+  "settings.updates.versionUnknown": "Current version is unavailable.",
+  "settings.about.docs": "Documentation",
+  "settings.about.github": "GitHub Repository",
+  "settings.about.changelog": "Changelog",
+  "settings.about.feedback": "Send feedback",
+  "settings.providers.botModelTitle": "nexu Bot model",
+  "settings.providers.botModelDesc":
+    "Pick the default model used by your desktop workspace.",
+  "settings.providers.workspace": "Workspace",
   "models.loading": "Loading models...",
   "models.retry": "Retry",
   "models.loadFailed": "Failed to load models",
@@ -285,6 +535,38 @@ const en = {
   "models.provider.google.description": "Gemini series AI models",
   "models.provider.ollama.description":
     "Use local Ollama models running on your machine",
+  "models.provider.qwen.name": "Qwen",
+  "models.provider.volcengine.name": "Volcengine Ark",
+  "models.provider.qianfan.name": "Baidu Qianfan",
+  "models.provider.xiaomi.name": "Xiaomi MiMo",
+  "models.provider.glm.name": "Zhipu",
+  "models.provider.siliconflow.name": "SiliconFlow",
+  "models.provider.siliconflow.description":
+    "SiliconFlow provides hosted foundation models through an OpenAI-compatible API.",
+  "models.provider.ppio.description":
+    "PPIO offers a managed OpenAI-compatible endpoint for running popular models.",
+  "models.provider.qwen.description":
+    "Alibaba Cloud DashScope provides Qwen and other models through a compatible API.",
+  "models.provider.volcengine.description":
+    "Volcengine Ark gives access to Doubao, DeepSeek, and other hosted models.",
+  "models.provider.qianfan.description":
+    "Baidu Qianfan provides ERNIE and other hosted models through a compatible API.",
+  "models.provider.xiaomi.description":
+    "Xiaomi MiMo provides Flash, Pro, and Omni models through a compatible API.",
+  "models.provider.minimax.description":
+    "MiniMax provides chat and reasoning models through its hosted API platform.",
+  "models.provider.kimi.description":
+    "Moonshot AI provides Kimi models through an OpenAI-compatible API.",
+  "models.provider.glm.description":
+    "Zhipu provides GLM models through the BigModel compatible API.",
+  "models.provider.nvidia.description":
+    "NVIDIA NIM provides hosted models through an OpenAI-compatible API.",
+  "models.provider.stepfun.description":
+    "StepFun provides hosted models through an OpenAI-compatible API.",
+  "models.provider.amazonBedrock.description":
+    "AWS Bedrock uses your AWS credentials and region configuration.",
+  "models.provider.deepseek.description":
+    "DeepSeek provides hosted models through an OpenAI-compatible API.",
   "models.provider.openaiCompatible.description":
     "OpenAI-compatible API provider",
   "models.managed.connected": "Log out",
@@ -303,6 +585,9 @@ const en = {
     "Sign in with your nexu account to access unlimited premium models like Claude Opus 4.6, GPT-5.4, and more — no API key needed.",
   "models.managed.waitingLogin": "Waiting for browser login...",
   "models.managed.loginButton": "Sign in to nexu",
+  "models.managed.logoutConfirmTitle": "Log out of nexu Official?",
+  "models.managed.logoutConfirmDescription":
+    "This will disconnect nexu Official from your current nexu account on this device.",
   "models.managed.availableModels": "Available models",
   "models.managed.refreshSucceeded": "Models refreshed",
   "models.managed.refreshFailed": "Could not refresh models",
@@ -344,6 +629,9 @@ const en = {
   "models.byok.oauthFailed": "ChatGPT login failed",
   "models.byok.oauthOrApiKey": "Or enter an API key manually",
   "models.byok.oauthDescription": "Use your ChatGPT Plus/Pro subscription",
+  "models.byok.awsSdkAuth": "Authentication uses your AWS credential chain",
+  "models.byok.awsSdkAuthHint":
+    "No API key is required here. Configure AWS credentials and region in your runtime environment.",
   "models.byok.minimax.authModeOauth": "OAuth Login",
   "models.byok.minimax.authModeApiKey": "API Key",
   "models.byok.minimax.oauthTitle": "MiniMax Coding Plan OAuth",
@@ -362,6 +650,22 @@ const en = {
   "models.byok.zaiCodingPlanDesc":
     "Free models with your Z.AI Coding Plan subscription",
   "models.byok.zaiOrGeneralApi": "Or use General API key",
+  "models.customProvider.addButton": "Add custom provider",
+  "models.customProvider.title": "New custom provider",
+  "models.customProvider.newProvider": "New custom provider",
+  "models.customProvider.compatibility": "Compatibility",
+  "models.customProvider.compatibilityOpenai": "OpenAI-compatible",
+  "models.customProvider.compatibilityAnthropic": "Anthropic-compatible",
+  "models.customProvider.instanceId": "Instance id",
+  "models.customProvider.instanceIdPlaceholder": "e.g. team-gateway",
+  "models.customProvider.displayName": "Display name",
+  "models.customProvider.displayNamePlaceholder": "Custom provider",
+  "models.customProvider.baseUrl": "Base URL",
+  "models.customProvider.baseUrlPlaceholder": "https://api.example.com/v1",
+  "models.customProvider.create": "Create provider",
+  "models.customProvider.creating": "Creating...",
+  "models.customProvider.createFailed": "Failed to create custom provider",
+  "models.customProvider.removeDraft": "Remove draft",
 
   // ── Channels Page ──
   "channels.pageTitle": "Channels",
@@ -391,6 +695,13 @@ const en = {
   "channels.openTelegramDesc":
     "Open your bot profile, start a direct chat, or add it to a group. Group replies work when the bot is mentioned.",
   "channels.openTelegramBot": "Open Bot",
+  "channels.open": "Open",
+  "channels.openInDiscord": "Open in Discord",
+  "channels.openInWhatsApp": "Open in WhatsApp",
+  "channels.openInDingTalk": "Open in DingTalk",
+  "channels.openInWeCom": "Open in WeCom",
+  "channels.openInQQ": "Open in QQ",
+  "channels.openInWeChat": "Open in WeChat",
   "channels.webhookUrl": "Webhook URL",
   "channels.credentials": "Credentials",
   "channels.accountId": "Account ID",
@@ -450,6 +761,23 @@ const en = {
   "skills.installQueued": "Skill queued for installation",
   "skills.skillNotFound":
     '"{{slug}}" is not available on ClawHub. It may have been removed or renamed.',
+  "skills.skillNotAvailable":
+    "This skill is not available on ClawHub. It may have been removed or renamed.",
+  "skills.installRateLimited":
+    "ClawHub is rate-limiting requests. Please wait a moment and retry.",
+  "skills.installFailedGeneric":
+    "Installation failed. Please retry in a moment.",
+  "skills.retryInstall": "Retry",
+  "skills.cancelInstall": "Cancel",
+  "skills.cancelling": "Cancelling…",
+  "skills.cancelFailed": "Failed to cancel: {{error}}",
+  "skills.installNpmMissing":
+    "npm is required to install this skill. Please install Node.js from https://nodejs.org/ and restart Nexu.",
+  "skills.installDepsFailed":
+    'Failed to install dependencies for "{{slug}}". Check the controller logs for details.',
+  "skills.installFailed": 'Failed to install "{{slug}}": {{error}}',
+  "skills.installRequestFailed": "Could not start the install: {{error}}",
+  "skills.uninstallRequestFailed": "Could not uninstall the skill: {{error}}",
   "skills.import": "Import",
   "skills.importSkill": "Import Skill",
   "skills.importSkillDesc":
@@ -565,6 +893,7 @@ const en = {
   "sessions.chat.replyLabel": "Reply",
   "sessions.chat.toolActivity": "Tool",
   "sessions.chat.toolCompleted": "Completed",
+  "sessions.openFolder": "Open Folder",
 
   // ── Integrations Page ──
   "integrations.pageTitle": "Integrations",
@@ -760,6 +1089,86 @@ const en = {
 
   // ── WhatsApp Setup ──
   "whatsappSetup.title": "Connect WhatsApp",
+  "whatsappSetup.personalTitle": "Connect Personal WhatsApp",
+  "whatsappSetup.desc":
+    "Scan once with your phone to link WhatsApp Web. Direct messages stay open, and group replies are enabled by default when the account is mentioned.",
+  "whatsappSetup.qrAlt": "WhatsApp QR code",
+  "whatsappSetup.waitingForScan": "Waiting for WhatsApp scan",
+  "whatsappSetup.scanHint":
+    "Open WhatsApp on your phone, then go to Linked Devices and scan this QR code.",
+  "whatsappSetup.preparingQr": "Preparing WhatsApp QR code",
+  "whatsappSetup.finishingConnection": "Finishing WhatsApp connection",
+  "whatsappSetup.retry": "Retry",
+  "whatsappSetup.scanQr": "Scan WhatsApp QR",
+  "whatsappSetup.connectSuccess": "WhatsApp connected",
+  "whatsappSetup.connectFailed": "WhatsApp connect failed",
+  "whatsappSetup.startFailed": "Failed to start WhatsApp login",
+  "whatsappSetup.loadQrFailed": "Failed to load WhatsApp QR code",
+  "whatsappSetup.waitFailed": "WhatsApp login timed out",
+
+  // ── QQ Setup ──
+  "qqbotSetup.title": "Connect QQ",
+  "qqbotSetup.desc":
+    "Create a QQ bot app, paste the App ID and Secret here, then let Nexu reply through the bundled OpenClaw plugin.",
+  "qqbotSetup.quickSetup": "Quick setup",
+  "qqbotSetup.step1": "Open QQ Bot Platform",
+  "qqbotSetup.step2": "Create or open your bot application.",
+  "qqbotSetup.step3": "Copy the App ID and App Secret.",
+  "qqbotSetup.step4": "Paste the credentials below and verify the connection.",
+  "qqbotSetup.appIdLabel": "App ID",
+  "qqbotSetup.appIdPlaceholder": "e.g. 1024",
+  "qqbotSetup.appSecretLabel": "App Secret",
+  "qqbotSetup.appSecretPlaceholder": "Your app secret",
+  "qqbotSetup.credentialsRequired": "QQ App ID and App Secret are required",
+  "qqbotSetup.testSuccess": "QQ credentials are valid",
+  "qqbotSetup.testFailed": "Failed to verify QQ credentials",
+  "qqbotSetup.connect": "Connect QQ",
+  "qqbotSetup.connectSuccess": "QQ connected",
+  "qqbotSetup.connectFailed": "Failed to connect QQ",
+
+  // ── DingTalk Setup ──
+  "dingtalkSetup.title": "Connect DingTalk",
+  "dingtalkSetup.desc":
+    "Create a DingTalk app in Open Platform, then paste the Client ID and Client Secret here.",
+  "dingtalkSetup.quickSetup": "Quick setup",
+  "dingtalkSetup.step1": "Open DingTalk Open Platform",
+  "dingtalkSetup.step2": "Create or open a robot-enabled application.",
+  "dingtalkSetup.step3":
+    "Copy the Client ID and Client Secret from app credentials.",
+  "dingtalkSetup.step4":
+    "Paste the credentials below and verify the connection.",
+  "dingtalkSetup.clientIdLabel": "Client ID",
+  "dingtalkSetup.clientIdPlaceholder": "e.g. dingxxxxxxxxxxxxxxxx",
+  "dingtalkSetup.clientSecretLabel": "Client Secret",
+  "dingtalkSetup.clientSecretPlaceholder": "Your client secret",
+  "dingtalkSetup.credentialsRequired":
+    "DingTalk Client ID and Client Secret are required",
+  "dingtalkSetup.testSuccess": "DingTalk credentials are valid",
+  "dingtalkSetup.testFailed": "Failed to verify DingTalk credentials",
+  "dingtalkSetup.connect": "Connect DingTalk",
+  "dingtalkSetup.connectSuccess": "DingTalk connected",
+  "dingtalkSetup.connectFailed": "Failed to connect DingTalk",
+
+  // ── WeCom Setup ──
+  "wecomSetup.title": "Connect WeCom",
+  "wecomSetup.desc":
+    "Enter your WeCom bot credentials to enable replies through the bundled OpenClaw plugin.",
+  "wecomSetup.quickSetup": "Quick setup",
+  "wecomSetup.step1LinkLabel": "Open WeCom Developer Center",
+  "wecomSetup.step1Suffix": ".",
+  "wecomSetup.step2": "Create or open your bot application.",
+  "wecomSetup.step3": "Copy the Bot ID and Secret.",
+  "wecomSetup.step4": "Paste the credentials below and verify the connection.",
+  "wecomSetup.botIdLabel": "Bot ID",
+  "wecomSetup.botIdPlaceholder": "e.g. ww1234567890abcdef",
+  "wecomSetup.secretLabel": "Secret",
+  "wecomSetup.secretPlaceholder": "Your bot secret",
+  "wecomSetup.credentialsRequired": "WeCom Bot ID and Secret are required",
+  "wecomSetup.testSuccess": "WeCom credentials look valid",
+  "wecomSetup.testFailed": "Failed to verify WeCom credentials",
+  "wecomSetup.connect": "Connect WeCom",
+  "wecomSetup.connectSuccess": "WeCom connected",
+  "wecomSetup.connectFailed": "Failed to connect WeCom",
 
   // ── Common UI ──
   "common.closeDialog": "Close dialog",

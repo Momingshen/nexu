@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Toaster } from "sonner";
 import type { DesktopChromeMode, DesktopSurface } from "../../shared/host";
+import { resolveDesktopUpdateExperience } from "../../shared/update-policy";
 import { useAutoUpdate } from "../hooks/use-auto-update";
 import { useDesktopRuntimeConfig } from "../hooks/use-desktop-runtime-config";
 import { onDesktopCommand } from "../lib/host-api";
@@ -10,15 +11,13 @@ import {
 } from "../lib/runtime-formatters";
 import { DiagnosticsPage } from "../pages/diagnostics-page";
 import { RuntimePage } from "../pages/runtime-page";
+import { DevelopSetBalanceDialog } from "./develop-set-balance-dialog";
 import { SurfaceButton } from "./surface-button";
 import { SurfaceFrame } from "./surface-frame";
 import { UpdateBanner } from "./update-banner";
 
 function getWebviewPreloadUrl(): string {
-  return new URL(
-    "../dist-electron/preload/webview-preload.js",
-    document.location.href,
-  ).href;
+  return window.nexuHost.bootstrap.webviewPreloadUrl;
 }
 
 export function DesktopShell() {
@@ -26,19 +25,43 @@ export function DesktopShell() {
   const [activeSurface, setActiveSurface] = useState<DesktopSurface>(
     isPackaged ? "web" : "control",
   );
+  const [showSetBalanceDialog, setShowSetBalanceDialog] = useState(false);
   const [chromeMode, setChromeMode] = useState<DesktopChromeMode>(
     isPackaged ? "immersive" : "full",
   );
   const webSurfaceVersion = 0;
   const { desktopOpenClawUrl, desktopWebUrl, runtimeConfig } =
     useDesktopRuntimeConfig();
-  const update = useAutoUpdate();
+  const updateExperience = useMemo(
+    () =>
+      runtimeConfig
+        ? resolveDesktopUpdateExperience({
+            buildSource: runtimeConfig.buildInfo.source,
+            updateFeed: runtimeConfig.urls.updateFeed,
+          })
+        : "normal",
+    [runtimeConfig],
+  );
+  const update = useAutoUpdate({ experience: updateExperience });
   const { check: checkForUpdates } = update;
 
   useEffect(() => {
     return onDesktopCommand((command) => {
       if (command.type === "desktop:check-for-updates") {
         void checkForUpdates();
+        return;
+      }
+      if (command.type === "develop:open-set-balance") {
+        setShowSetBalanceDialog(true);
+        return;
+      }
+      if (command.type === "setup:complete") {
+        return;
+      }
+      if (
+        command.type !== "develop:focus-surface" &&
+        command.type !== "develop:show-shell"
+      ) {
         return;
       }
 
@@ -55,6 +78,10 @@ export function DesktopShell() {
           : "desktop-shell"
       }
     >
+      <DevelopSetBalanceDialog
+        open={showSetBalanceDialog}
+        onClose={() => setShowSetBalanceDialog(false)}
+      />
       <div className="window-drag-bar" />
       <aside className="desktop-sidebar">
         <div className="desktop-sidebar-brand">
@@ -164,16 +191,27 @@ export function DesktopShell() {
         </div>
       </main>
 
-      <UpdateBanner
-        dismissed={update.dismissed}
-        errorMessage={update.errorMessage}
-        onDismiss={update.dismiss}
-        onDownload={() => void update.download()}
-        onInstall={() => void update.install()}
-        percent={update.percent}
-        phase={update.phase}
-        version={update.version}
-      />
+      {chromeMode !== "immersive" && (
+        <UpdateBanner
+          canCheckForUpdates={
+            updateExperience === "local-test-feed" &&
+            Boolean(update.capability?.check)
+          }
+          capability={update.capability}
+          currentVersion={runtimeConfig?.buildInfo.version ?? null}
+          dismissed={update.dismissed}
+          errorMessage={update.errorMessage}
+          experience={updateExperience}
+          onCheck={() => void update.check()}
+          onDismiss={update.dismiss}
+          onDownload={() => void update.download()}
+          onInstall={() => void update.install()}
+          percent={update.percent}
+          phase={update.phase}
+          releaseNotes={update.releaseNotes}
+          version={update.version}
+        />
+      )}
     </div>
   );
 }

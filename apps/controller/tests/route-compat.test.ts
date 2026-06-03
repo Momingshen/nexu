@@ -1,19 +1,20 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ControllerContainer } from "../src/app/container.js";
 import { createApp } from "../src/app/create-app.js";
 import type { ControllerEnv } from "../src/app/env.js";
+import { ControlPlaneHealthService } from "../src/runtime/control-plane-health.js";
+import { CreditGuardStateWriter } from "../src/runtime/credit-guard-state-writer.js";
 import { OpenClawAuthProfilesStore } from "../src/runtime/openclaw-auth-profiles-store.js";
 import { OpenClawAuthProfilesWriter } from "../src/runtime/openclaw-auth-profiles-writer.js";
 import { OpenClawConfigWriter } from "../src/runtime/openclaw-config-writer.js";
 import { OpenClawProcessManager } from "../src/runtime/openclaw-process.js";
-import { OpenClawRuntimeModelWriter } from "../src/runtime/openclaw-runtime-model-writer.js";
-import { OpenClawRuntimePluginWriter } from "../src/runtime/openclaw-runtime-plugin-writer.js";
 import { OpenClawWatchTrigger } from "../src/runtime/openclaw-watch-trigger.js";
-import { RuntimeHealth } from "../src/runtime/runtime-health.js";
 import { SessionsRuntime } from "../src/runtime/sessions-runtime.js";
+import { OpenClawRuntimeModelWriter } from "../src/runtime/slimclaw-runtime-model-writer.js";
+import { OpenClawRuntimePluginWriter } from "../src/runtime/slimclaw-runtime-plugin-writer.js";
 import { createRuntimeState } from "../src/runtime/state.js";
 import { WorkspaceTemplateWriter } from "../src/runtime/workspace-template-writer.js";
 import { AgentService } from "../src/services/agent-service.js";
@@ -65,8 +66,14 @@ async function createTestContainer(
       ".openclaw",
       "nexu-runtime-model.json",
     ),
+    creditGuardStatePath: path.join(
+      rootDir,
+      ".openclaw",
+      "nexu-credit-guard-state.json",
+    ),
     skillhubCacheDir: path.join(rootDir, ".nexu", "skillhub-cache"),
     skillDbPath: path.join(rootDir, ".nexu", "skill-ledger.json"),
+    analyticsStatePath: path.join(rootDir, ".nexu", "analytics-state.json"),
     staticSkillsDir: undefined,
     platformTemplatesDir: undefined,
     openclawWorkspaceTemplatesDir: path.join(
@@ -84,6 +91,8 @@ async function createTestContainer(
     runtimeSyncIntervalMs: 2000,
     runtimeHealthIntervalMs: 5000,
     defaultModelId: "anthropic/claude-sonnet-4",
+    posthogApiKey: undefined,
+    posthogHost: undefined,
   };
 
   const configStore = new NexuConfigStore(env);
@@ -94,10 +103,10 @@ async function createTestContainer(
   const authProfilesWriter = new OpenClawAuthProfilesWriter(authProfilesStore);
   const runtimePluginWriter = new OpenClawRuntimePluginWriter(env);
   const runtimeModelWriter = new OpenClawRuntimeModelWriter(env);
+  const creditGuardStateWriter = new CreditGuardStateWriter(env);
   const templateWriter = new WorkspaceTemplateWriter(env);
   const watchTrigger = new OpenClawWatchTrigger(env);
   const sessionsRuntime = new SessionsRuntime(env);
-  const runtimeHealth = new RuntimeHealth(env);
   const openclawProcess = new OpenClawProcessManager(env);
   const runtimeState = createRuntimeState();
   const wsClient = {
@@ -108,6 +117,12 @@ async function createTestContainer(
     isConnected: () => false,
     request: vi.fn(),
   } as never);
+  const controlPlaneHealth = new ControlPlaneHealthService(
+    gatewayService,
+    wsClient,
+    runtimeState,
+    openclawProcess,
+  );
   const openclawSyncService = new OpenClawSyncService(
     env,
     configStore,
@@ -117,6 +132,7 @@ async function createTestContainer(
     authProfilesStore,
     runtimePluginWriter,
     runtimeModelWriter,
+    creditGuardStateWriter,
     templateWriter,
     watchTrigger,
     gatewayService,
@@ -155,10 +171,18 @@ async function createTestContainer(
     gatewayClient: {
       fetchJson: vi.fn(),
     } as unknown as ControllerContainer["gatewayClient"],
-    runtimeHealth,
+    controlPlaneHealth,
     openclawProcess,
     agentService: new AgentService(configStore, openclawSyncService),
-    channelService: new ChannelService(configStore, openclawSyncService),
+    channelService: new ChannelService(
+      env,
+      configStore,
+      openclawSyncService,
+      gatewayService,
+      openclawProcess,
+      controlPlaneHealth,
+      wsClient,
+    ),
     channelFallbackService,
     sessionService: new SessionService(sessionsRuntime),
     runtimeConfigService: new RuntimeConfigService(
@@ -179,6 +203,13 @@ async function createTestContainer(
     skillhubService,
     openclawSyncService,
     openclawAuthService,
+    quotaFallbackService: {
+      triggerFallback: vi.fn(),
+    } as never,
+    githubStarVerificationService: {
+      prepareSession: vi.fn(),
+      verifySession: vi.fn(),
+    } as never,
     wsClient,
     gatewayService,
     runtimeState,
@@ -372,6 +403,220 @@ describe("controller route compatibility", () => {
     expect(deleteProfile.status).toBe(200);
   });
 
+  it("supports qqbot connect when the plugin is installed", async () => {
+    await mkdir(
+      path.join(container.env.openclawExtensionsDir, "openclaw-qqbot"),
+      {
+        recursive: true,
+      },
+    );
+    await writeFile(
+      path.join(
+        container.env.openclawExtensionsDir,
+        "openclaw-qqbot",
+        "openclaw.plugin.json",
+      ),
+      JSON.stringify({ id: "openclaw-qqbot", channels: ["qqbot"] }),
+      "utf8",
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = input.toString();
+        if (url.includes("bots.qq.com/app/getAppAccessToken")) {
+          return new Response(
+            JSON.stringify({ access_token: "qq-access-token" }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }),
+    );
+
+    const app = createApp(container);
+    const response = await app.request("/api/v1/channels/qqbot/connect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        appId: "123456",
+        appSecret: "qq-secret",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      channelType: string;
+      appId?: string;
+    };
+    expect(payload.channelType).toBe("qqbot");
+    expect(payload.appId).toBe("123456");
+  });
+
+  it("supports wecom connect when the plugin is installed", async () => {
+    await mkdir(path.join(container.env.openclawExtensionsDir, "wecom"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(
+        container.env.openclawExtensionsDir,
+        "wecom",
+        "openclaw.plugin.json",
+      ),
+      JSON.stringify({ id: "wecom", channels: ["wecom"] }),
+      "utf8",
+    );
+
+    const app = createApp(container);
+    const response = await app.request("/api/v1/channels/wecom/connect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        botId: "wecom-bot-123",
+        secret: "wecom-secret",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      channelType: string;
+      appId?: string;
+    };
+    expect(payload.channelType).toBe("wecom");
+    expect(payload.appId).toBe("wecom-bot-123");
+  });
+
+  it("supports wecom connectivity tests when the plugin is installed", async () => {
+    await mkdir(path.join(container.env.openclawExtensionsDir, "wecom"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(
+        container.env.openclawExtensionsDir,
+        "wecom",
+        "openclaw.plugin.json",
+      ),
+      JSON.stringify({ id: "wecom", channels: ["wecom"] }),
+      "utf8",
+    );
+
+    const app = createApp(container);
+    const response = await app.request("/api/v1/channels/wecom/test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        botId: "wecom-bot-123",
+        secret: "wecom-secret",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      success: boolean;
+      message: string;
+    };
+    expect(payload.success).toBe(true);
+    expect(payload.message).toContain("wecom-bot-123");
+  });
+
+  it("supports qqbot connectivity tests when the plugin is installed", async () => {
+    await mkdir(
+      path.join(container.env.openclawExtensionsDir, "openclaw-qqbot"),
+      {
+        recursive: true,
+      },
+    );
+    await writeFile(
+      path.join(
+        container.env.openclawExtensionsDir,
+        "openclaw-qqbot",
+        "openclaw.plugin.json",
+      ),
+      JSON.stringify({ id: "openclaw-qqbot", channels: ["qqbot"] }),
+      "utf8",
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = input.toString();
+        if (url.includes("bots.qq.com/app/getAppAccessToken")) {
+          return new Response(
+            JSON.stringify({ access_token: "qq-access-token" }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }),
+    );
+
+    const app = createApp(container);
+    const response = await app.request("/api/v1/channels/qqbot/test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        appId: "123456",
+        appSecret: "qq-secret",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      success: boolean;
+      message: string;
+    };
+    expect(payload.success).toBe(true);
+    expect(payload.message).toContain("123456");
+  });
+
+  it("maps legacy qqbot account ids to the runtime default account for live status", async () => {
+    const gatewayService = new OpenClawGatewayService(
+      {
+        isConnected: () => true,
+        request: vi.fn(async () => ({
+          channelOrder: ["qqbot"],
+          channels: {},
+          channelAccounts: {
+            qqbot: [
+              {
+                accountId: "default",
+                enabled: true,
+                configured: true,
+                running: true,
+                connected: true,
+                lastError: null,
+              },
+            ],
+          },
+        })),
+      } as never,
+      createRuntimeState(),
+    );
+
+    const result = await gatewayService.getAllChannelsLiveStatus([
+      {
+        id: "qq-channel-1",
+        channelType: "qqbot",
+        accountId: "qqbot-123456",
+      },
+    ]);
+
+    expect(result.gatewayConnected).toBe(true);
+    expect(result.channels).toEqual([
+      {
+        channelType: "qqbot",
+        channelId: "qq-channel-1",
+        accountId: "qqbot-123456",
+        status: "connected",
+        ready: true,
+        connected: true,
+        running: true,
+        configured: true,
+        lastError: null,
+      },
+    ]);
+  });
+
   it("does not expose the removed internal skill compatibility endpoints", async () => {
     const app = createApp(container);
 
@@ -423,5 +668,39 @@ describe("controller route compatibility", () => {
     expect(payload.workspacePath).toBe(
       path.join(rootDir, ".openclaw", "agents", bot.id),
     );
+  });
+
+  it("serves desktop rewards status and claim routes (cloud proxy mode)", async () => {
+    const app = createApp(container);
+
+    // Without cloud connection, status returns empty fallback
+    const statusResponse = await app.request("/api/internal/desktop/rewards");
+    expect(statusResponse.status).toBe(200);
+    const statusPayload = (await statusResponse.json()) as {
+      tasks: Array<{ id: string; isClaimed: boolean }>;
+      viewer: { cloudConnected: boolean; usingManagedModel: boolean };
+      cloudBalance: null;
+    };
+    expect(statusPayload.tasks).toHaveLength(0);
+    expect(statusPayload.viewer.cloudConnected).toBe(false);
+    expect(statusPayload.viewer.usingManagedModel).toBe(false);
+    expect(statusPayload.cloudBalance).toBeNull();
+
+    // Without cloud connection, claim returns ok:false
+    const claimResponse = await app.request(
+      "/api/internal/desktop/rewards/claim",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ taskId: "daily_checkin" }),
+      },
+    );
+    expect(claimResponse.status).toBe(200);
+    const claimPayload = (await claimResponse.json()) as {
+      ok: boolean;
+      alreadyClaimed: boolean;
+    };
+    expect(claimPayload.ok).toBe(false);
+    expect(claimPayload.alreadyClaimed).toBe(false);
   });
 });

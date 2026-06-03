@@ -60,6 +60,10 @@ function createConfig(overrides: Partial<NexuConfig> = {}): NexuConfig {
       },
       defaultModelId: "anthropic/claude-sonnet-4",
     },
+    models: {
+      mode: "merge",
+      providers: {},
+    },
     providers: [
       {
         id: "provider-1",
@@ -177,11 +181,123 @@ describe("compileOpenClawConfig", () => {
       webhookPath: "/feishu/events/cli_a1b2c3",
       verificationToken: "verify-token",
     });
+    expect(result.channels.feishu).not.toMatchObject({
+      streaming: expect.anything(),
+      renderMode: expect.anything(),
+      requireMention: expect.anything(),
+      tools: expect.anything(),
+    });
     expect(result.plugins?.entries?.feishu?.enabled).toBe(true);
     expect(result.skills?.load?.extraDirs).toEqual([
       "/tmp/openclaw/skills",
       "/tmp/.agents/skills",
     ]);
+  });
+
+  it("prewarms openclaw-weixin in plugins.allow even with no connected wechat channel", () => {
+    // Regression: without this, first wechat connect changes plugins.allow
+    // -> SIGUSR1 -> ~11s drain -> GatewayDrainingError on inbound messages.
+    const result = compileOpenClawConfig(
+      createConfig({
+        channels: [],
+        secrets: {},
+      }),
+      createEnv(),
+    );
+
+    expect(result.plugins?.allow).toContain("openclaw-weixin");
+    expect(result.plugins?.entries?.["openclaw-weixin"]?.enabled).toBe(true);
+  });
+
+  it("compiles qqbot channels and enables the canonical qq plugin id", () => {
+    const now = new Date().toISOString();
+    const result = compileOpenClawConfig(
+      createConfig({
+        channels: [
+          {
+            id: "qq-channel-1",
+            botId: "bot-1",
+            channelType: "qqbot",
+            accountId: "default",
+            status: "connected",
+            teamName: null,
+            appId: "123456",
+            botUserId: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        secrets: {
+          "channel:qq-channel-1:appId": "123456",
+          "channel:qq-channel-1:clientSecret": "qq-secret",
+        },
+      }),
+      createEnv(),
+    );
+
+    expect(result.channels.qqbot).toMatchObject({
+      enabled: true,
+      appId: "123456",
+      clientSecret: "qq-secret",
+      dmPolicy: "open",
+      groupPolicy: "open",
+      historyLimit: 50,
+      markdownSupport: true,
+    });
+    expect(result.bindings).toContainEqual({
+      agentId: "bot-1",
+      match: {
+        channel: "qqbot",
+        accountId: "default",
+      },
+    });
+    expect(result.plugins?.allow).toContain("openclaw-qqbot");
+    expect(result.plugins?.entries?.["openclaw-qqbot"]?.enabled).toBe(true);
+  });
+
+  it("compiles wecom channels and enables the canonical wecom plugin id", () => {
+    const now = new Date().toISOString();
+    const result = compileOpenClawConfig(
+      createConfig({
+        channels: [
+          {
+            id: "wecom-channel-1",
+            botId: "bot-1",
+            channelType: "wecom",
+            accountId: "default",
+            status: "connected",
+            teamName: null,
+            appId: "wecom-bot-123",
+            botUserId: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        secrets: {
+          "channel:wecom-channel-1:botId": "wecom-bot-123",
+          "channel:wecom-channel-1:secret": "wecom-secret",
+        },
+      }),
+      createEnv(),
+    );
+
+    expect(result.channels.wecom).toMatchObject({
+      enabled: true,
+      botId: "wecom-bot-123",
+      secret: "wecom-secret",
+      dmPolicy: "open",
+      groupPolicy: "open",
+      sendThinkingMessage: true,
+    });
+    expect(result.bindings).toContainEqual({
+      agentId: "bot-1",
+      match: {
+        channel: "wecom",
+        accountId: "default",
+      },
+    });
+    expect(result.plugins?.allow).toContain("wecom");
+    expect(result.plugins?.entries?.wecom?.enabled).toBe(true);
   });
 
   it("injects env-backed litellm routing for bare local model ids", () => {
@@ -224,12 +340,71 @@ describe("compileOpenClawConfig", () => {
     });
   });
 
+  it("compiles dingtalk channels and enables the canonical dingtalk plugin id", () => {
+    const now = new Date().toISOString();
+    const result = compileOpenClawConfig(
+      createConfig({
+        channels: [
+          {
+            id: "dingtalk-channel-1",
+            botId: "bot-1",
+            channelType: "dingtalk",
+            accountId: "default",
+            status: "connected",
+            teamName: null,
+            appId: "ding-client-id",
+            botUserId: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        secrets: {
+          "channel:dingtalk-channel-1:clientId": "ding-client-id",
+          "channel:dingtalk-channel-1:clientSecret": "ding-client-secret",
+        },
+      }),
+      createEnv(),
+    );
+
+    expect(result.channels["dingtalk-connector"]).toMatchObject({
+      enabled: true,
+      clientId: "ding-client-id",
+      clientSecret: "ding-client-secret",
+      gatewayBaseUrl: "http://127.0.0.1:18789",
+      gatewayToken: "token-123",
+      dmPolicy: "open",
+      groupPolicy: "open",
+    });
+    expect(
+      (
+        result.gateway as {
+          http?: { endpoints?: { chatCompletions?: { enabled?: boolean } } };
+        }
+      ).http?.endpoints?.chatCompletions?.enabled,
+    ).toBe(true);
+    expect(result.bindings).toContainEqual({
+      agentId: "bot-1",
+      match: {
+        channel: "dingtalk-connector",
+        accountId: "default",
+      },
+    });
+    expect(result.plugins?.allow).toContain("dingtalk-connector");
+    expect(result.plugins?.entries?.["dingtalk-connector"]?.enabled).toBe(true);
+  });
+
   it("does not remap openai models to OAuth providers without persisted OAuth state", () => {
+    const baseConfig = createConfig();
+    const baseBot = baseConfig.bots[0];
+    const baseProvider = baseConfig.providers?.[0];
+    if (!baseBot || !baseProvider) {
+      throw new Error("expected base config fixtures");
+    }
     const result = compileOpenClawConfig(
       createConfig({
         bots: [
           {
-            ...createConfig().bots[0],
+            ...baseBot,
             modelId: "openai/gpt-5.4",
           },
         ],
@@ -243,7 +418,7 @@ describe("compileOpenClawConfig", () => {
         },
         providers: [
           {
-            ...createConfig().providers[0],
+            ...baseProvider,
             apiKey: null,
             models: ["gpt-5.4"],
           },
@@ -462,12 +637,18 @@ describe("compileOpenClawConfig", () => {
   });
 
   it("ignores unsupported custom providers in compiled model config", () => {
+    const baseConfig = createConfig();
+    const baseProviders = baseConfig.providers ?? [];
+    const baseProvider = baseProviders[0];
+    if (!baseProvider) {
+      throw new Error("expected base config providers");
+    }
     const result = compileOpenClawConfig(
       createConfig({
         providers: [
-          ...createConfig().providers,
+          ...baseProviders,
           {
-            ...createConfig().providers[0],
+            ...baseProvider,
             id: "provider-3",
             providerId: "custom",
             displayName: "Custom",
@@ -523,6 +704,193 @@ describe("compileOpenClawConfig", () => {
     expect(result.models?.providers.minimax?.baseUrl).toBe(
       "https://api.minimaxi.com/anthropic",
     );
+  });
+
+  it("compiles canonical custom provider instances with deterministic runtime keys", () => {
+    const now = new Date().toISOString();
+    const result = compileOpenClawConfig(
+      createConfig({
+        bots: [
+          {
+            ...createConfig().bots[0],
+            modelId: "custom-openai/team-gateway/anthropic/claude-haiku-4.5",
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        runtime: {
+          gateway: {
+            port: 18789,
+            bind: "loopback",
+            authMode: "token",
+          },
+          defaultModelId:
+            "custom-openai/team-gateway/anthropic/claude-haiku-4.5",
+        },
+        providers: [],
+        models: {
+          mode: "merge",
+          providers: {
+            "custom-openai/team-gateway": {
+              providerTemplateId: "custom-openai",
+              instanceId: "team-gateway",
+              enabled: true,
+              auth: "api-key",
+              api: "openai-completions",
+              apiKey: "custom-key",
+              baseUrl: "https://gateway.example.com/v1",
+              displayName: "Team Gateway",
+              headers: {
+                "x-team-id": "team-gateway",
+              },
+              models: [
+                {
+                  id: "anthropic/claude-haiku-4.5",
+                  name: "Claude Haiku 4.5",
+                  reasoning: false,
+                  input: ["text"],
+                  cost: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                  },
+                  contextWindow: 0,
+                  maxTokens: 0,
+                },
+              ],
+            },
+          },
+        },
+        desktop: {},
+      }),
+      createEnv(),
+    );
+
+    expect(
+      result.models?.providers["custom-openai__team-gateway"],
+    ).toMatchObject({
+      baseUrl: "https://gateway.example.com/v1",
+      apiKey: "custom-key",
+      api: "openai-completions",
+      headers: {
+        "x-team-id": "team-gateway",
+      },
+    });
+    expect(
+      result.models?.providers["custom-openai__team-gateway"]?.models[0]?.id,
+    ).toBe("anthropic/claude-haiku-4.5");
+    expect(result.agents.defaults?.model).toEqual({
+      primary: "custom-openai__team-gateway/anthropic/claude-haiku-4.5",
+    });
+  });
+
+  it("preserves secret-ref provider API keys in compiled models config", () => {
+    const result = compileOpenClawConfig(
+      createConfig({
+        providers: [],
+        models: {
+          mode: "merge",
+          providers: {
+            openai: {
+              enabled: true,
+              auth: "api-key",
+              api: "openai-completions",
+              apiKey: {
+                source: "env",
+                provider: "nexu",
+                id: "openai-api-key",
+              },
+              baseUrl: "https://api.openai.com/v1",
+              models: [
+                {
+                  id: "gpt-4.1",
+                  name: "GPT-4.1",
+                  reasoning: false,
+                  input: ["text"],
+                  cost: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                  },
+                  contextWindow: 0,
+                  maxTokens: 0,
+                },
+              ],
+            },
+          },
+        },
+        desktop: {},
+      }),
+      createEnv(),
+    );
+
+    expect(result.models?.providers.openai?.apiKey).toEqual({
+      source: "env",
+      provider: "nexu",
+      id: "openai-api-key",
+    });
+    expect(result.models?.providers.openai?.models[0]?.id).toBe("gpt-4.1");
+  });
+
+  it("normalizes legacy byok model refs against canonical provider config", () => {
+    const now = new Date().toISOString();
+    const result = compileOpenClawConfig(
+      createConfig({
+        bots: [
+          {
+            ...createConfig().bots[0],
+            modelId: "byok_openai/openai/gpt-4.1",
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        runtime: {
+          gateway: {
+            port: 18789,
+            bind: "loopback",
+            authMode: "token",
+          },
+          defaultModelId: "byok_openai/openai/gpt-4.1",
+        },
+        providers: [],
+        models: {
+          mode: "merge",
+          providers: {
+            openai: {
+              enabled: true,
+              auth: "api-key",
+              api: "openai-completions",
+              apiKey: "sk-test",
+              baseUrl: "https://api.openai.com/v1",
+              models: [
+                {
+                  id: "gpt-4.1",
+                  name: "GPT-4.1",
+                  reasoning: false,
+                  input: ["text"],
+                  cost: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                  },
+                  contextWindow: 0,
+                  maxTokens: 0,
+                },
+              ],
+            },
+          },
+        },
+        desktop: {},
+      }),
+      createEnv(),
+    );
+
+    expect(result.agents.defaults?.model).toEqual({
+      primary: "openai/gpt-4.1",
+    });
   });
 
   describe("agent skill assignment", () => {
@@ -638,6 +1006,40 @@ describe("compileOpenClawConfig", () => {
       expect(botB?.skills).toEqual(["shared-skill"]);
     });
 
+    it("sorts merged skills deterministically regardless of input order", () => {
+      const baseConfig = createConfig();
+      const baseBot = baseConfig.bots[0];
+      if (!baseBot) {
+        throw new Error("expected base config bot");
+      }
+      const config = createConfig({
+        bots: [
+          {
+            ...baseBot,
+            id: "bot-a",
+            slug: "bot-a",
+          },
+        ],
+        channels: [],
+      });
+
+      const compiled = compileOpenClawConfig(
+        config,
+        createEnv(),
+        undefined,
+        ["zeta", "alpha", "shared-skill"],
+        new Map([["bot-a", ["workspace-z", "alpha", "workspace-a"]]]),
+      );
+
+      expect(compiled.agents.list[0]?.skills).toEqual([
+        "alpha",
+        "shared-skill",
+        "workspace-a",
+        "workspace-z",
+        "zeta",
+      ]);
+    });
+
     it("deduplicates when same slug in shared and workspace", () => {
       const config = createConfig();
       const wsMap = new Map<string, readonly string[]>([
@@ -684,6 +1086,12 @@ describe("compileOpenClawConfig", () => {
   });
 
   it("remaps openai models to OAuth provider ids when persisted OAuth state is connected", () => {
+    const baseConfig = createConfig();
+    const baseBot = baseConfig.bots[0];
+    const baseProvider = baseConfig.providers?.[0];
+    if (!baseBot || !baseProvider) {
+      throw new Error("expected base config fixtures");
+    }
     const oauthState: OAuthConnectionState = {
       connectedProviderIds: ["openai"],
     };
@@ -691,7 +1099,7 @@ describe("compileOpenClawConfig", () => {
       createConfig({
         bots: [
           {
-            ...createConfig().bots[0],
+            ...baseBot,
             modelId: "openai/gpt-5.4",
           },
         ],
@@ -705,7 +1113,7 @@ describe("compileOpenClawConfig", () => {
         },
         providers: [
           {
-            ...createConfig().providers[0],
+            ...baseProvider,
             apiKey: null,
             models: ["gpt-5.4"],
           },
@@ -722,5 +1130,50 @@ describe("compileOpenClawConfig", () => {
     expect(result.agents.list[0]?.model).toEqual({
       primary: "openai-codex/gpt-5.4",
     });
+  });
+
+  it("omits empty apiKey fields for oauth-backed providers in compiled models config", () => {
+    const result = compileOpenClawConfig(
+      createConfig({
+        providers: [],
+        models: {
+          mode: "merge",
+          providers: {
+            openai: {
+              enabled: true,
+              auth: "oauth",
+              api: "openai-completions",
+              apiKey: null,
+              oauthProfileRef: "openai-codex",
+              baseUrl: "https://api.openai.com/v1",
+              models: [
+                {
+                  id: "gpt-5.4",
+                  name: "GPT-5.4",
+                  reasoning: false,
+                  input: ["text"],
+                  cost: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                  },
+                  contextWindow: 0,
+                  maxTokens: 0,
+                },
+              ],
+            },
+          },
+        },
+        desktop: {
+          selectedModelId: null,
+        },
+      }),
+      createEnv(),
+    );
+
+    expect(result.models?.providers.openai).toBeDefined();
+    expect(result.models?.providers.openai).not.toHaveProperty("apiKey");
+    expect(result.models?.providers.openai?.models[0]?.id).toBe("gpt-5.4");
   });
 });

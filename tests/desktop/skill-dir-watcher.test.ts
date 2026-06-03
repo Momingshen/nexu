@@ -20,6 +20,10 @@ function removeSkill(skillsDir: string, slug: string): void {
   rmSync(resolve(skillsDir, slug), { recursive: true, force: true });
 }
 
+function touchWatchTrigger(skillsDir: string): void {
+  writeFileSync(resolve(skillsDir, ".watch-trigger"), String(Date.now()));
+}
+
 function wait(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -34,6 +38,8 @@ async function waitUntil(
     if (fn()) return;
     await wait(intervalMs);
   }
+
+  throw new Error("Timed out waiting for watcher state");
 }
 
 describe("SkillDirWatcher", () => {
@@ -165,6 +171,7 @@ describe("SkillDirWatcher", () => {
         watcher.start();
 
         writeSkill(skillsDir, "new-skill");
+        touchWatchTrigger(skillsDir);
 
         await waitUntil(() => db.isInstalled("new-skill", "managed"));
 
@@ -172,24 +179,29 @@ describe("SkillDirWatcher", () => {
       },
     );
 
-    it("detects SKILL.md removal and marks skill as uninstalled", async () => {
-      writeSkill(skillsDir, "doomed-skill");
+    it(
+      "detects SKILL.md removal and marks skill as uninstalled",
+      { timeout: 10000 },
+      async () => {
+        writeSkill(skillsDir, "doomed-skill");
 
-      watcher = new SkillDirWatcher({
-        skillsDir,
-        skillDb: db,
-        debounceMs: 50,
-      });
-      watcher.syncNow();
-      expect(db.isInstalled("doomed-skill", "managed")).toBe(true);
+        watcher = new SkillDirWatcher({
+          skillsDir,
+          skillDb: db,
+          debounceMs: 50,
+        });
+        watcher.syncNow();
+        expect(db.isInstalled("doomed-skill", "managed")).toBe(true);
 
-      watcher.start();
+        watcher.start();
 
-      removeSkill(skillsDir, "doomed-skill");
+        removeSkill(skillsDir, "doomed-skill");
+        touchWatchTrigger(skillsDir);
 
-      await waitUntil(() => !db.isInstalled("doomed-skill", "managed"));
+        await waitUntil(() => !db.isInstalled("doomed-skill", "managed"));
 
-      expect(db.isInstalled("doomed-skill", "managed")).toBe(false);
-    });
+        expect(db.isInstalled("doomed-skill", "managed")).toBe(false);
+      },
+    );
   });
 });

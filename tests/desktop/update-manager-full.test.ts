@@ -121,6 +121,7 @@ async function createManager(
   const mgr = new UpdateManager(win as never, orchestrator as never, {
     channel: "stable",
     feedUrl: null,
+    platform: "darwin",
     ...options,
   });
   return { mgr, win, orchestrator };
@@ -161,6 +162,77 @@ describe("bindEvents", () => {
     expect(eventNames).toContain("error");
   });
 
+  it("logs that the update feed was configured", async () => {
+    await createManager();
+
+    expect(mockWriteDesktopMainLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("update feed configured"),
+      }),
+    );
+  });
+
+  it("auto-download: user-initiated checks surface available state", async () => {
+    let resolveCheck!: (value: unknown) => void;
+    mockAutoUpdater.checkForUpdates.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCheck = resolve;
+      }),
+    );
+
+    const { mgr, win } = await createManager(undefined, { autoDownload: true });
+    const handlers = extractHandlers();
+
+    const checkPromise = mgr.checkNow({ userInitiated: true });
+    handlers["update-available"]({
+      version: "1.0.0",
+      releaseDate: "2026-03-20",
+      releaseNotes: "Bug fixes",
+    });
+    resolveCheck({
+      updateInfo: { version: "1.0.0", releaseDate: "2026-03-20" },
+    });
+
+    await checkPromise;
+
+    expect(win.webContents.send).toHaveBeenCalledWith(
+      "update:available",
+      expect.objectContaining({
+        version: "1.0.0",
+        diagnostic: expect.objectContaining({ remoteVersion: "1.0.0" }),
+      }),
+    );
+  });
+
+  it("auto-download: background checks stay silent", async () => {
+    let resolveCheck!: (value: unknown) => void;
+    mockAutoUpdater.checkForUpdates.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCheck = resolve;
+      }),
+    );
+
+    const { mgr, win } = await createManager(undefined, { autoDownload: true });
+    const handlers = extractHandlers();
+
+    const checkPromise = mgr.checkNow();
+    handlers["update-available"]({
+      version: "1.0.0",
+      releaseDate: "2026-03-20",
+      releaseNotes: "Bug fixes",
+    });
+    resolveCheck({
+      updateInfo: { version: "1.0.0", releaseDate: "2026-03-20" },
+    });
+
+    await checkPromise;
+
+    expect(win.webContents.send).not.toHaveBeenCalledWith(
+      "update:available",
+      expect.anything(),
+    );
+  });
+
   // -------------------------------------------------------------------------
   // checking-for-update
   // -------------------------------------------------------------------------
@@ -176,7 +248,9 @@ describe("bindEvents", () => {
         source: "auto-update",
         stream: "system",
         kind: "app",
-        message: expect.stringContaining("checking for update"),
+        message: expect.stringContaining(
+          "update check event: checking for update",
+        ),
       }),
     );
     expect(win.webContents.send).toHaveBeenCalledWith(
@@ -290,21 +364,53 @@ describe("bindEvents", () => {
   // download-progress
   // -------------------------------------------------------------------------
 
-  it("download-progress: sends progress data without logCheck", async () => {
+  it("download-progress: throttles logs but keeps first and 100% progress", async () => {
+    vi.spyOn(Date, "now")
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(1_000);
+
     const { win } = await createManager();
     const handlers = extractHandlers();
 
     handlers["download-progress"]({
-      percent: 42.5,
+      percent: 1,
       bytesPerSecond: 1024000,
       transferred: 5000000,
       total: 12000000,
     });
-
-    expect(win.webContents.send).toHaveBeenCalledWith("update:progress", {
-      percent: 42.5,
+    handlers["download-progress"]({
+      percent: 2,
       bytesPerSecond: 1024000,
-      transferred: 5000000,
+      transferred: 5100000,
+      total: 12000000,
+    });
+    handlers["download-progress"]({
+      percent: 4,
+      bytesPerSecond: 1024000,
+      transferred: 5200000,
+      total: 12000000,
+    });
+    handlers["download-progress"]({
+      percent: 100,
+      bytesPerSecond: 1024000,
+      transferred: 12000000,
+      total: 12000000,
+    });
+
+    const progressLogs = mockWriteDesktopMainLog.mock.calls
+      .map(([entry]) => entry as { message?: string })
+      .filter((entry) => entry.message?.includes("download progress"));
+
+    expect(progressLogs).toHaveLength(2);
+    expect(progressLogs[0]?.message).toContain("download progress 1%");
+    expect(progressLogs[1]?.message).toContain("download progress 100%");
+    expect(win.webContents.send).toHaveBeenLastCalledWith("update:progress", {
+      percent: 100,
+      bytesPerSecond: 1024000,
+      transferred: 12000000,
       total: 12000000,
     });
   });
@@ -322,6 +428,11 @@ describe("bindEvents", () => {
     expect(win.webContents.send).toHaveBeenCalledWith("update:downloaded", {
       version: "1.0.0",
     });
+    expect(mockWriteDesktopMainLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("update event: downloaded"),
+      }),
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -378,6 +489,34 @@ describe("checkNow", () => {
     const result = await mgr.checkNow();
 
     expect(result).toEqual({ updateAvailable: false });
+  });
+
+  it("logs when a check is skipped because one is already in progress", async () => {
+    let resolveCheck!: (
+      value: { updateInfo: { version: string; releaseDate: string } } | null,
+    ) => void;
+    mockAutoUpdater.checkForUpdates.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCheck = resolve;
+      }),
+    );
+
+    const { mgr } = await createManager();
+    const firstCheck = mgr.checkNow();
+    void mgr.checkNow();
+    resolveCheck({
+      updateInfo: { version: "1.0.0", releaseDate: "2026-03-20" },
+    });
+
+    await firstCheck;
+
+    expect(mockWriteDesktopMainLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining(
+          "update check skipped: already in progress",
+        ),
+      }),
+    );
   });
 
   it("returns { updateAvailable: false } when checkForUpdates returns null", async () => {
@@ -474,7 +613,7 @@ describe("checkNow", () => {
     expect(mockAutoUpdater.checkForUpdates).toHaveBeenCalledTimes(2);
   });
 
-  it("logs check complete with diagnostic on success", async () => {
+  it("logs check result with diagnostic on success", async () => {
     mockAutoUpdater.checkForUpdates.mockResolvedValue({
       updateInfo: { version: "1.0.0", releaseDate: "2026-03-20" },
     });
@@ -484,7 +623,9 @@ describe("checkNow", () => {
 
     expect(mockWriteDesktopMainLog).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: expect.stringContaining("check complete"),
+        message: expect.stringContaining(
+          "update check result: update available",
+        ),
       }),
     );
   });
@@ -503,6 +644,33 @@ describe("downloadUpdate", () => {
 
     expect(mockAutoUpdater.downloadUpdate).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ ok: true });
+  });
+
+  it("surfaces cached progress immediately when switching from background to foreground", async () => {
+    mockAutoUpdater.downloadUpdate.mockResolvedValue(undefined);
+
+    const { mgr, win } = await createManager(undefined, { autoDownload: true });
+    const handlers = extractHandlers();
+
+    handlers["update-available"]({
+      version: "0.3.0",
+      releaseDate: "2026-04-10T00:00:00Z",
+    });
+    handlers["download-progress"]({
+      percent: 61,
+      bytesPerSecond: 1024,
+      transferred: 610,
+      total: 1000,
+    });
+
+    await mgr.downloadUpdate();
+
+    expect(win.webContents.send).toHaveBeenCalledWith("update:progress", {
+      percent: 61,
+      bytesPerSecond: 1024,
+      transferred: 610,
+      total: 1000,
+    });
   });
 });
 
@@ -829,6 +997,20 @@ describe("constructor", () => {
       provider: "generic",
       url: expect.stringContaining("desktop-releases.nexu.io/stable/"),
     });
+  });
+
+  it("exposes a non-in-app capability on Windows without binding autoUpdater", async () => {
+    const { mgr } = await createManager(undefined, { platform: "win32" });
+
+    expect(mgr.getCapability()).toEqual({
+      platform: "win32",
+      check: true,
+      downloadMode: "in-app",
+      applyMode: "external-installer",
+      applyLabel: "Install",
+      notes: null,
+    });
+    expect(mockAutoUpdater.on).not.toHaveBeenCalled();
   });
 });
 

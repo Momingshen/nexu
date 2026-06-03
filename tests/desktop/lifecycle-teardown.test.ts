@@ -1,3 +1,4 @@
+import path from "node:path";
 /**
  * Lifecycle Teardown Smoke Tests
  *
@@ -84,6 +85,33 @@ vi.mock("../../apps/desktop/shared/workspace-paths", () => ({
   getWorkspaceRoot: vi.fn(() => "/repo"),
 }));
 
+vi.mock("@nexu/slimclaw", () => ({
+  getSlimclawRuntimeRoot: vi.fn(() =>
+    path.join("/repo", "packages", "slimclaw", ".dist-runtime", "openclaw"),
+  ),
+  resolveSlimclawRuntimeArtifacts: vi.fn(() => ({
+    entryPath: path.join(
+      "/repo",
+      "packages",
+      "slimclaw",
+      ".dist-runtime",
+      "openclaw",
+      "node_modules",
+      "openclaw",
+      "openclaw.mjs",
+    ),
+    binPath: path.join(
+      "/repo",
+      "packages",
+      "slimclaw",
+      ".dist-runtime",
+      "openclaw",
+      "bin",
+      "openclaw",
+    ),
+  })),
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -92,6 +120,50 @@ const labels = {
   controller: "io.nexu.controller",
   openclaw: "io.nexu.openclaw",
 };
+
+function escapeRegexLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const repoControllerPattern = escapeRegexLiteral(
+  path.join("/repo", "apps", "controller", "dist", "index.js"),
+);
+const repoOpenclawPattern = escapeRegexLiteral(
+  path.join(
+    "/repo",
+    "packages",
+    "slimclaw",
+    ".dist-runtime",
+    "openclaw",
+    "node_modules",
+    "openclaw",
+    "openclaw.mjs",
+  ),
+);
+const repoOpenclawBinPattern = escapeRegexLiteral(
+  path.join(
+    "/repo",
+    "packages",
+    "slimclaw",
+    ".dist-runtime",
+    "openclaw",
+    "bin",
+    "openclaw",
+  ),
+);
+const packagedControllerPattern = escapeRegexLiteral(
+  path.join(
+    "/Users/testuser",
+    ".nexu",
+    "runtime",
+    "controller-sidecar",
+    "dist",
+    "index.js",
+  ),
+);
+const packagedOpenclawPattern = "\\.nexu/(runtime/)?openclaw-sidecar";
+const packagedOpenclawBinPattern =
+  "\\.nexu/(runtime/)?openclaw-sidecar/.*/openclaw(?:\\.cmd)?";
 
 function setupPgrepMock(matches: Record<string, number[]>): void {
   mockExecFile.mockImplementation(
@@ -212,8 +284,9 @@ describe("teardownLaunchdServices", () => {
 
     // pgrep finds orphan processes
     setupPgrepMock({
-      "node.*controller/dist/index.js": [99901],
-      "node.*openclaw.mjs gateway": [99902],
+      [packagedControllerPattern]: [99901],
+      [packagedOpenclawPattern]: [99902],
+      [packagedOpenclawBinPattern]: [99903],
     });
 
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
@@ -231,6 +304,7 @@ describe("teardownLaunchdServices", () => {
     // Orphan processes should be killed
     expect(killSpy).toHaveBeenCalledWith(99901, "SIGKILL");
     expect(killSpy).toHaveBeenCalledWith(99902, "SIGKILL");
+    expect(killSpy).toHaveBeenCalledWith(99903, "SIGKILL");
 
     killSpy.mockRestore();
   });
@@ -263,9 +337,11 @@ describe("teardownLaunchdServices", () => {
   // -----------------------------------------------------------------------
   it("kills orphan processes found by pgrep", async () => {
     setupPgrepMock({
-      "node.*controller/dist/index.js": [10001],
-      "node.*openclaw.mjs gateway": [10002, 10003],
-      "openclaw-gateway": [10004],
+      [repoControllerPattern]: [10001],
+      [repoOpenclawPattern]: [10002, 10003],
+      [repoOpenclawBinPattern]: [10004],
+      [packagedOpenclawPattern]: [10005],
+      [packagedOpenclawBinPattern]: [10006],
     });
 
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
@@ -284,6 +360,8 @@ describe("teardownLaunchdServices", () => {
     expect(killSpy).toHaveBeenCalledWith(10002, "SIGKILL");
     expect(killSpy).toHaveBeenCalledWith(10003, "SIGKILL");
     expect(killSpy).toHaveBeenCalledWith(10004, "SIGKILL");
+    expect(killSpy).toHaveBeenCalledWith(10005, "SIGKILL");
+    expect(killSpy).toHaveBeenCalledWith(10006, "SIGKILL");
 
     killSpy.mockRestore();
   });
@@ -318,7 +396,7 @@ describe("teardownLaunchdServices", () => {
   it("excludes own PID from orphan kill list", async () => {
     const selfPid = process.pid;
     setupPgrepMock({
-      "node.*controller/dist/index.js": [selfPid, 99999],
+      [repoControllerPattern]: [selfPid, 99999],
     });
 
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
@@ -472,7 +550,7 @@ describe("ensureNexuProcessesDead", () => {
   it("returns clean=false with remainingPids when timeout expires", async () => {
     // Process always found
     setupPgrepMock({
-      "node.*controller/dist/index.js": [77777],
+      [repoControllerPattern]: [77777],
     });
 
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
@@ -502,9 +580,11 @@ describe("ensureNexuProcessesDead", () => {
   // -----------------------------------------------------------------------
   it("kills processes matching all patterns", async () => {
     setupPgrepMock({
-      "node.*controller/dist/index.js": [11111],
-      "node.*openclaw.mjs gateway": [22222],
-      "openclaw-gateway": [33333],
+      [repoControllerPattern]: [11111],
+      [repoOpenclawPattern]: [22222],
+      [repoOpenclawBinPattern]: [33333],
+      [packagedOpenclawPattern]: [44444],
+      [packagedOpenclawBinPattern]: [55555],
     });
 
     // After first round of kills, all processes die
@@ -522,9 +602,11 @@ describe("ensureNexuProcessesDead", () => {
           if (!killed) {
             const pattern = args[1];
             const matches: Record<string, string> = {
-              "node.*controller/dist/index.js": "11111",
-              "node.*openclaw.mjs gateway": "22222",
-              "openclaw-gateway": "33333",
+              [repoControllerPattern]: "11111",
+              [repoOpenclawPattern]: "22222",
+              [repoOpenclawBinPattern]: "33333",
+              [packagedOpenclawPattern]: "44444",
+              [packagedOpenclawBinPattern]: "55555",
             };
             if (matches[pattern]) {
               callback(null, { stdout: matches[pattern], stderr: "" });
@@ -616,7 +698,7 @@ describe("ensureNexuProcessesDead", () => {
   it("excludes own PID from detected processes", async () => {
     const selfPid = process.pid;
     setupPgrepMock({
-      "node.*controller/dist/index.js": [selfPid],
+      [repoControllerPattern]: [selfPid],
     });
 
     const { ensureNexuProcessesDead } = await import(
@@ -687,9 +769,11 @@ describe("ensureNexuProcessesDead", () => {
   it("deduplicates PIDs found across multiple pgrep patterns", async () => {
     // Same PID 55555 matches both patterns
     setupPgrepMock({
-      "node.*controller/dist/index.js": [55555],
-      "node.*openclaw.mjs gateway": [55555],
-      "openclaw-gateway": [55555],
+      [repoControllerPattern]: [55555],
+      [repoOpenclawPattern]: [55555],
+      [packagedOpenclawPattern]: [55555],
+      [repoOpenclawBinPattern]: [55555],
+      [packagedOpenclawBinPattern]: [55555],
     });
 
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
